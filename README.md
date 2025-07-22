@@ -1,5 +1,10 @@
 # Scouting Egamma ID ntuplizer
 ## Workflow file format
+To get proxy file path, run 
+```
+voms-proxy-init --rfc --voms cms -valid 192:00
+```
+Please replace the `proxy_file` in the workflow yaml file. The yaml file format is described below
 ```yaml
 samples:
     process_name:
@@ -16,6 +21,6 @@ ntupler_store_values: [list of variables that want to store]
 ## Step1: GenMatching + Produce flat ntuple
 To submit the jobs
 ```
-python3 condor.py workflow.yaml --store_path /eos/user/t/tihsu/public/ScoutingID_ntuple --chunks 20 --farm_dir chunks --submit
+python3 condor.py workflow.yaml --store_path [storage_path] --chunks 20 --farm_dir chunks --submit
 ```
 
