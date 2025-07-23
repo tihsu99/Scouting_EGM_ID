@@ -15,6 +15,7 @@ import argparse
 import os
 import yaml
 import uproot
+from copy import deepcopy
 
 def is_valid_root_file_xrootd(path):
     try:
@@ -26,9 +27,15 @@ def is_valid_root_file_xrootd(path):
 class Ntupler(processor.ProcessorABC):
     def __init__(self, config):
         self.config = config
-        self.store_values = config["ntupler_store_values"]
+        self.store_values_electron = config["ntupler_store_values_for_electron"]
+        self.store_values_event = config["ntupler_store_values_for_event"]
         self.gen_matching_dR = config["gen_matching_dR"]
 
+        self.store_values = deepcopy(self.store_values_electron)
+
+        for collection, branches in self.store_values_event.items():
+            for branch in branches:
+                self.store_values.append(f"{collection}.{branch}")
 
         self._accumulator = processor.dict_accumulator({ 
             key: processor.column_accumulator(np.array([]))
@@ -80,8 +87,16 @@ class Ntupler(processor.ProcessorABC):
         electrons["status"] = ak.where((abs(matched_gen_ele.distinctParent.pdgId) > 50) & (matched_gen_ele.status == 2), ak.ones_like(electrons.status)*3, electrons.status)
         electrons["status"] = ak.where((abs(matched_gen_ele.distinctParent.pdgId) == 15) & (matched_gen_ele.status == 2), ak.ones_like(electrons.status)*2, electrons.status)
 
-        for key in self.store_values:
+        for key in self.store_values_electron:
             output[key] += processor.column_accumulator(ak.to_numpy(ak.flatten(electrons[key])))
+
+        for collection, branches in self.store_values_event.items():
+            obj = getattr(events, collection)
+            for branch in branches:
+                value = getattr(obj, branch)  # shape: (n_events,)
+                # Broadcast to match electrons per event
+                broadcasted = ak.broadcast_arrays(electrons.pt, value)[1]
+                output[f"{collection}.{branch}"] += processor.column_accumulator(ak.to_numpy(ak.flatten(broadcasted)))
 
 
         return {
@@ -134,5 +149,5 @@ if __name__ == "__main__":
     print(output["columns"]) 
     # Save filtered events (as NumPy or print summary)
     df = pd.DataFrame({k:v.value for k,v in output["columns"].items()})
-    df.to_hdf(os.path.join(args.store_path, f"output_{args.index}.h5"), key="data", mode='w')
+    df.to_hdf(os.path.join(args.store_path, f"output_{args.index}.h5"), key="data", mode='w', format="table")
 

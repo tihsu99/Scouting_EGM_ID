@@ -1,0 +1,104 @@
+samples:
+    DYToEE_M0p1to4: 
+        path: /store/user/asahasra/DYto2E_Bin-1J-MEE-0p1to4-PtE-7-PtJ-15_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Scouting_Winter25_DYMlow_crabNano250714/250715_075719/0000/
+        fname: scouting_nano.root
+        numbers: 8
+    DYToLL_M50: 
+        path: /store/user/asahasra/DYto2L-4Jets_Bin-MLL-50_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Scouting_Winter25_DYto2LM50_crabNano250714/250715_075535/0000/
+        fname: scouting_nano.root
+        numbers: 172
+    TTTo2L2Nu: 
+        path: /store/user/asahasra/TTto2L2Nu_TuneCP5_13p6TeV_powheg-pythia8/Run3Scouting_Winter25_TTTo2L2Nu_crabNano250714/250714_103042/0000/
+        fname: scouting_nano.root
+        numbers: 94
+
+gen_matching_dR: 0.1
+
+proxy_file: /afs/cern.ch/user/t/tihsu/tmp/x509up
+
+ntupler_store_values_for_event:
+  Pileup:
+    - nPU
+  ScoutingRho:
+    - fixedGridRhoFastjetAll
+
+ntupler_store_values_for_electron:
+  - rechitZeroSuppression
+  - missingHits
+  - bestTrack_charge
+  - iEtaOriX
+  - iPhiOriY
+  - isEB
+  - nClusters
+  - nCrystals
+  - seedId
+  - corrEcalEnergyError
+  - dEtaIn
+  - dPhiIn
+  - ecalIso
+  - eta
+  - hOverE
+  - hcalIso
+  - m
+  - ooEMOop
+  - phi
+  - preshowerEnergy
+  - pt
+  - r9
+  - rawEnergy
+  - sMaj
+  - sMin
+  - sigmaIetaIeta
+  - trackIso
+  - trackfbrem
+  - bestTrack_chi2overndf
+  - bestTrack_d0
+  - bestTrack_dz
+  - bestTrack_eta
+  - bestTrack_etaMode
+  - bestTrack_pMode
+  - bestTrack_phi
+  - bestTrack_phiMode
+  - bestTrack_pt
+  - bestTrack_qoverpModeError
+  - showerE1x5
+  - showerE2ndMax
+  - showerE2x5Bottom
+  - showerE2x5Left
+  - showerE2x5Max
+  - showerE2x5Right
+  - showerE2x5Top
+  - showerE5x5
+  - showerEBottom
+  - showerELeft
+  - showerEMax
+  - showerERight
+  - showerETop
+  - showerEdep0
+  - showerEdep1
+  - showerEdep10
+  - showerEdep11
+  - showerEdep12
+  - showerEdep13
+  - showerEdep14
+  - showerEdep15
+  - showerEdep16
+  - showerEdep17
+  - showerEdep18
+  - showerEdep19
+  - showerEdep2
+  - showerEdep20
+  - showerEdep21
+  - showerEdep22
+  - showerEdep23
+  - showerEdep24
+  - showerEdep3
+  - showerEdep4
+  - showerEdep5
+  - showerEdep6
+  - showerEdep7
+  - showerEdep8
+  - showerEdep9
+  - status
+
+

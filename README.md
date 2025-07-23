@@ -1,5 +1,10 @@
 # Scouting Egamma ID ntuplizer
-## Workflow file format
+## set environment
+Use `/cvmfs` environmental file
+```
+source env.sh
+```
+## workflow file format
 To get proxy file path, run 
 ```
 voms-proxy-init --rfc --voms cms -valid 192:00
@@ -16,7 +21,9 @@ gen_matching_dR: [float]
 
 proxy_file: [proxy file storage place]
 
-ntupler_store_values: [list of variables that want to store]
+ntupler_store_values_for_event:
+  collection: [list of collection variables]
+ntupler_store_values_for_electron: [list of variables that want to store]
 ```
 ## Step1: GenMatching + Produce flat ntuple
 To submit the jobs
