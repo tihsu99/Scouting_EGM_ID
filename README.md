@@ -30,4 +30,7 @@ To submit the jobs
 ```
 python3 condor.py workflow.yaml --store_path [storage_path] --chunks 20 --farm_dir chunks --submit
 ```
-
+The store files are in `parquet` format. To inspect the structure
+```
+python3 tool_box/parquet_structure.py [h5 path]
+```

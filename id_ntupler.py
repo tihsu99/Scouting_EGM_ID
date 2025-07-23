@@ -148,6 +148,12 @@ if __name__ == "__main__":
 
     print(output["columns"]) 
     # Save filtered events (as NumPy or print summary)
-    df = pd.DataFrame({k:v.value for k,v in output["columns"].items()})
-    df.to_hdf(os.path.join(args.store_path, f"output_{args.index}.h5"), key="data", mode='w', format="table")
+    #df = pd.DataFrame({k:v.value for k,v in output["columns"].items()})
+    #df.to_hdf(os.path.join(args.store_path, f"output_{args.index}.h5"), key="data", mode='w', format="table")
 
+
+    df = pd.DataFrame({k: v.value for k, v in output["columns"].items()})
+    output_path = os.path.join(args.store_path, f"output_{args.index}.parquet")
+    df.to_parquet(output_path, index=False)
+
+    print(f"[✓] Saved filtered events to: {output_path}")
