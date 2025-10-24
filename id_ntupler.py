@@ -84,8 +84,8 @@ class Ntupler(processor.ProcessorABC):
         electrons["status"] = ak.where(electrons.gen_dR > self.gen_matching_dR, ak.zeros_like(electrons.status), electrons.status)
 
         matched_gen_ele = gen_ele[electrons.gen_idx]
-        electrons["status"] = ak.where((abs(matched_gen_ele.distinctParent.pdgId) > 50) & (matched_gen_ele.status == 2), ak.ones_like(electrons.status)*3, electrons.status)
-        electrons["status"] = ak.where((abs(matched_gen_ele.distinctParent.pdgId) == 15) & (matched_gen_ele.status == 2), ak.ones_like(electrons.status)*2, electrons.status)
+        electrons["status"] = ak.where((abs(matched_gen_ele.distinctParent.pdgId) > 50) & (matched_gen_ele.distinctParent.status == 2), ak.ones_like(electrons.status)*3, electrons.status)
+        electrons["status"] = ak.where((abs(matched_gen_ele.distinctParent.pdgId) == 15) & (matched_gen_ele.distinctParent.status == 2), ak.ones_like(electrons.status)*2, electrons.status)
 
         for key in self.store_values_electron:
             output[key] += processor.column_accumulator(ak.to_numpy(ak.flatten(electrons[key])))

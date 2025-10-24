@@ -34,3 +34,9 @@ The store files are in `parquet` format. To inspect the structure
 ```
 python3 tool_box/parquet_structure.py [h5 path]
 ```
+
+## Step2: ID Analysis Flow
+This is `luigi` based workflow structure. Targetting to use `config/standard.yaml` to schedule the pipeline automatically.
+```
+python3 analysis.py --config-path config/standard.yaml --local-scheduler
+```

@@ -1,0 +1,53 @@
+inputdir: /eos/user/t/tihsu/database/EGM_Scouting_ID
+process:
+    signal:
+        requirement: "(status == 1) & (pt > 10)"
+        samples:
+            TTTo2L2Nu: 1.0
+    background:
+        requirement: "(status == 0) & (pt > 10)"
+        samples:
+            DYToLL_M50: 1.0
+
+region_definition:
+    Barrel:
+        requirement: "(abs(eta) < 1.47)"
+    Endcap:
+        requirement: "(abs(eta) > 1.47) & (abs(eta) < 2.5)"
+    Barrel+Endcap:
+        requirement: "(abs(eta) < 2.5)"
+
+workflow:
+    DeriveEffectiveArea:
+        plotdir: /eos/user/t/tihsu/database/EGM_Scouting_ID_analysis/EffectiveArea
+        EffectiveArea:
+            hOverE:
+                x: "ScoutingRho.fixedGridRhoFastjetAll" 
+                y: "pt*cosh(eta)*hOverE"
+                eta_bins: [0,0, 0,5]
+
+                
+
+
+    InspectDistribution:
+        kinematic_reweighting: BACKGROUND
+        n_files: 10
+        plotdir:  /eos/user/t/tihsu/database/EGM_Scouting_ID_analysis/plot_distribution
+        regions: 
+            - Barrel
+            - Endcap
+        inspect_variable:
+            pt: [0, 200, 40]
+            eta: [-3, 3, 24]
+            hOverE: [0, 0.2, 20]
+            phi: [-3.2, 3.2, 40]
+            missingHits: [0, 4, 4]
+            dEtaIn: [0, 0.2, 20]
+            dPhiIn: [0, 0.2, 20]
+            ooEMOop: [0, 0.2, 20]
+            ecalIso: [0, 20, 40]
+            hcalIso: [0, 20, 40]
+            trackIso: [0, 20, 40]
+            r9: [0, 1.0, 40]
+            sigmaIetaIeta: [0, 0.05, 20]
+

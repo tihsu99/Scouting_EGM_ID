@@ -36,7 +36,7 @@ def create_condor_submit(chunk_paths, store_path, out_file="submit.sub", run_dir
 
     with open(out_file, "w") as f:
         f.write("universe = vanilla\n")
-        f.write('+JobFlavour = "longlunch"\n')
+        f.write('+JobFlavour = "workday"\n')
         f.write("should_transfer_files = NO\n")
         f.write(f"x509userproxy = {proxy_file}\n")
         f.write("use_x509userproxy = True\n")
