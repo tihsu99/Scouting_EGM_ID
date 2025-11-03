@@ -5,9 +5,20 @@ from concurrent.futures import ProcessPoolExecutor
 from functools import partial
 import matplotlib.pyplot as plt
 import mplhep as hep
+from correctionlib import highlevel
+from sklearn.model_selection import train_test_split
+from rich.console import Console
+from rich.table import Table
+console = Console()
 
 plt.style.use(hep.style.CMS)
 
+def apply_corrections(df, corrfile="corrections_all.json"):
+    cs = highlevel.CorrectionSet.from_file(corrfile)
+    for var_name in cs.keys():  # automatically iterate over all stored corrections
+        corr = cs[var_name]
+        df[var_name] = df["eta"].apply(lambda e: corr.evaluate(abs(e)))
+    return df
 # ---------------------
 # Top-level functions
 # ---------------------
@@ -28,17 +39,22 @@ def build_hist_2d(args, requirement, pt_bins, eta_bins):
     return h
 
 
-def process_file(args, variables, fileset, reweight_2d=None, pt_bins=None, eta_bins=None, extra_requirement=None):
+def process_file(args, variables, fileset, reweight_2d=None, pt_bins=None, eta_bins=None, extra_requirement=None, correction_lib=None, variable_definition=None):
     """Process a single file, optionally applying 2D reweighting."""
     file_path, sample_name = args
     df = pd.read_parquet(file_path)
+    if correction_lib is not None:
+      df = apply_corrections(df, correction_lib)
+    if variable_definition is not None:
+      for variable_name, definition in variable_definition.items():
+          df[variable_name] = df.eval(definition)
     requirement = fileset[sample_name]["requirement"]
     if requirement:
         df = df.query(requirement)
     if extra_requirement:
         df = df.query(extra_requirement)
     weights = np.ones(len(df)) * fileset[sample_name]["weight"]
-
+    df["weight"] = weights
     # Apply reweight if provided
     if reweight_2d is not None:
         pt_idx = np.clip(np.digitize(df["pt"].values, pt_bins) - 1, 0, len(pt_bins)-2)
@@ -51,6 +67,7 @@ def process_file(args, variables, fileset, reweight_2d=None, pt_bins=None, eta_b
             bins = np.linspace(bins[0], bins[1], bins[2]+1)
         if var in df.columns:
             out[var] = np.histogram(df[var].values, bins=bins, weights=weights, density = True)[0]
+    out["df"] = df
     return out
 
 
@@ -66,6 +83,56 @@ def build_reference_hist(files, weights, requirement, pt_bins, eta_bins, n_worke
             h2d_total += h
 
     return h2d_total
+
+def split_and_save(signal_df, background_df, storedir, region_name, train_ratio=0.8, shuffle=True):
+    # --- Split ---
+    sig_train, sig_valid = train_test_split(
+        signal_df, test_size=1 - train_ratio, random_state=42, shuffle=shuffle
+    )
+    bkg_train, bkg_valid = train_test_split(
+        background_df, test_size=1 - train_ratio, random_state=42, shuffle=shuffle
+    )
+
+    # --- Prepare output dirs ---
+    train_store_dir = os.path.join(storedir, region_name, "train")
+    valid_store_dir = os.path.join(storedir, region_name, "valid")
+    os.makedirs(train_store_dir, exist_ok=True)
+    os.makedirs(valid_store_dir, exist_ok=True)
+
+    # --- Save ---
+    sig_train.to_parquet(os.path.join(train_store_dir, "signal.parquet"))
+    sig_valid.to_parquet(os.path.join(valid_store_dir, "signal.parquet"))
+    bkg_train.to_parquet(os.path.join(train_store_dir, "background.parquet"))
+    bkg_valid.to_parquet(os.path.join(valid_store_dir, "background.parquet"))
+
+    # --- Pretty summary ---
+    table = Table(title=f"📊 Dataset Split Summary for [bold cyan]{region_name}[/bold cyan]")
+
+    table.add_column("Sample", justify="center", style="bold")
+    table.add_column("Train", justify="right", style="green")
+    table.add_column("Valid", justify="right", style="yellow")
+    table.add_column("Total", justify="right", style="bold white")
+    table.add_column("Train %", justify="right", style="cyan")
+
+    def add_row(name, train_df, valid_df):
+        n_train = len(train_df)
+        n_valid = len(valid_df)
+        n_total = n_train + n_valid
+        frac_train = 100 * n_train / n_total if n_total > 0 else 0
+        table.add_row(
+            name,
+            f"{n_train:,}",
+            f"{n_valid:,}",
+            f"{n_total:,}",
+            f"{frac_train:.1f}%"
+        )
+
+    add_row("Signal", sig_train, sig_valid)
+    add_row("Background", bkg_train, bkg_valid)
+
+    console.print(table)
+    console.print(f"💾 Saved to: [bold green]{storedir}/{region_name}/[/bold green]\n")
+
 
 
 # ---------------------
@@ -88,6 +155,12 @@ def InspectDistributionAnalysis(**kwargs):
     n_files = kwargs.pop("n_files", -1)
     regions = kwargs.pop("regions", [])
     region_definition = kwargs.pop("region_definition", {})
+    correction_lib = kwargs.pop("correction_lib", None)
+    variable_definition = kwargs.pop("define_variable", None)
+    storedir = kwargs.pop("storedir")
+    shuffle = kwargs.pop("shuffle", True)
+    train_ratio = kwargs.pop("train_ratio", 0.8)
+
 
     region_ref = {region_name: region_dict for region_name, region_dict in region_definition.items() if region_name in regions}
 
@@ -158,20 +231,39 @@ def InspectDistributionAnalysis(**kwargs):
         worker_sig = partial(process_file, variables=inspect_variable,
                              fileset=fileset, reweight_2d=reweight_2d["signal"],
                              pt_bins=pt_bins, eta_bins=eta_bins,
-                             extra_requirement=region_info["requirement"])
+                             extra_requirement=region_info["requirement"],
+                             correction_lib = correction_lib, variable_definition=variable_definition)
         # Background processing without reweight
         worker_bkg = partial(process_file, variables=inspect_variable,
                              fileset=fileset, reweight_2d=reweight_2d["background"],
                              pt_bins=pt_bins, eta_bins=eta_bins,
-                             extra_requirement=region_info["requirement"])
+                             extra_requirement=region_info["requirement"],
+                             correction_lib = correction_lib, variable_definition=variable_definition)
+
+        signal_df = []
+        background_df = []
 
         with ProcessPoolExecutor(max_workers=n_workers) as executor:
             for res in executor.map(worker_sig, tasks_sig):
                 for var in res:
+                    if var == "df": 
+                        continue
                     all_results["signal"][var].append(res[var])
+                signal_df.append(res["df"])
             for res in executor.map(worker_bkg, tasks_bkg):
                 for var in res:
+                    if var == "df": 
+                        continue
+
                     all_results["background"][var].append(res[var])
+                background_df.append(res["df"])
+
+        signal_df = pd.concat(signal_df, axis = 0)
+        background_df = pd.concat(background_df, axis = 0)
+
+        split_and_save(signal_df, background_df, storedir, region_name, train_ratio=train_ratio, shuffle=shuffle)
+
+
 
         # --- Sum histograms per variable ---
         final_hist = {}
