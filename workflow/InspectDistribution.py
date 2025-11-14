@@ -54,12 +54,13 @@ def process_file(args, variables, fileset, reweight_2d=None, pt_bins=None, eta_b
     if extra_requirement:
         df = df.query(extra_requirement)
     weights = np.ones(len(df)) * fileset[sample_name]["weight"]
-    df["weight"] = weights
     # Apply reweight if provided
     if reweight_2d is not None:
         pt_idx = np.clip(np.digitize(df["pt"].values, pt_bins) - 1, 0, len(pt_bins)-2)
         eta_idx = np.clip(np.digitize(df["eta"].values, eta_bins) - 1, 0, len(eta_bins)-2)
         weights *= reweight_2d[pt_idx, eta_idx]
+    df["weight"] = weights
+
 
     out = {}
     for var, bins in variables.items():

@@ -38,6 +38,7 @@ class WorkflowManager(luigi.WrapperTask):
         tasks = []
         itask = 1
         # --- Iterate over workflow blocks ---
+        previous_task = None
         for workflow_name, workflow_params in workflow_cfg.items():
             try:
                 module = importlib.import_module(f"workflow.{workflow_name}")
@@ -46,6 +47,11 @@ class WorkflowManager(luigi.WrapperTask):
                 raise ImportError(
                     f"Could not import workflow '{workflow_name}' or find '{workflow_name}Analysis'"
                 )
+
+            # --- skip if specify in the cfg --- #
+            skip = workflow_params.get("skip", False)
+            if skip:
+                continue
 
             # --- Merge top-level and workflow-specific args ---
             module_path = f"workflow.{workflow_name}"
@@ -57,15 +63,24 @@ class WorkflowManager(luigi.WrapperTask):
 
             # Wrap as Luigi Task using a simple wrapper
 
-            tasks.append(TaskWrapper(
-                name=workflow_name,
-                workflow_func_path=func_path,
-                args=args,
-            ))
+            task = TaskWrapper(
+              name=workflow_name,
+              workflow_func_path=func_path,
+              args=args,
+            )
+
+
+
+            if previous_task is not None:
+                # make current task depend on previous one
+                task.requires = lambda prev=previous_task: prev
+
+            previous_task = task
+            tasks.append(task)
 
             print(f"✅ [Workflow-{itask}] add {workflow_name} with {workflow_params}")
             itask += 1
-        return tasks
+        return [tasks[-1]]
 
 
 if __name__ == "__main__":
