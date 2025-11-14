@@ -452,6 +452,15 @@ class ValidationAnalyzer:
                                 capsize=2,
                                 label=f"{source} {wp.name} {cls_name}",
                             )
+                ax.text(
+                   0.05, 0.95,
+                   f"{reg}",
+                   transform=ax.transAxes,
+                   fontsize=18,
+                   fontweight="bold",
+                   va="top",
+                   ha="left",
+                )
 
                 self._prep_axes(ax)
                 ax.set_xlabel(var)
@@ -500,70 +509,89 @@ class ValidationAnalyzer:
             is_bkg = ~is_sig
 
             for var in variables:
-                vals = reg_df[var].to_numpy()
-                bins_cfg = binning[var]
-                if len(bins_cfg) == 3:
-                    vmin, vmax, nb = bins_cfg
-                    b_edges = np.linspace(vmin, vmax, nb + 1)
-                else:
-                    b_edges = np.asarray(bins_cfg, dtype=float)
-                    vmin, vmax = float(b_edges[0]), float(b_edges[-1])
-                centers = 0.5 * (b_edges[:-1] + b_edges[1:])
+                 vals = reg_df[var].to_numpy()
+                 bins_cfg = binning[var]
+                 if len(bins_cfg) == 3:
+                     vmin, vmax, nb = bins_cfg
+                     b_edges = np.linspace(vmin, vmax, nb + 1)
+                 else:
+                     b_edges = np.asarray(bins_cfg, dtype=float)
+                     vmin, vmax = float(b_edges[0]), float(b_edges[-1])
+                 centers = 0.5 * (b_edges[:-1] + b_edges[1:])
 
-                for s_i, (source, wps) in enumerate(self.wp_sources.items()):
-                    color = OKABE_ITO[s_i % len(OKABE_ITO)]
-                    for wp in wps:
-                        # N−1 cuts: remove 'var' from cuts
-                        nm1_cuts = {k: v for k, v in wp.window_cuts.items()
-                                    if k != var}
-                        if nm1_cuts:
-                            nm1_mask = self._apply_window_cuts_block(reg_df, nm1_cuts)
-                        else:
-                            nm1_mask = np.ones(len(reg_df), dtype=bool)
+                 colors = OKABE_ITO   # or TOL_MUTED
 
-                        fig, ax = plt.subplots(figsize=(5.8, 4.6))
-                        hep.cms.label("Preliminary", ax=ax, loc=0)
+                 for s_i, (source, wps) in enumerate(self.wp_sources.items()):
+                    base_color = colors[s_i % len(colors)]
 
-                        for cls_name, cls_mask, alpha in (
-                            ("signal", is_sig, 0.5),
-                            ("background", is_bkg, 0.5),
-                        ):
-                            use = nm1_mask & cls_mask
-                            if not use.any():
-                                continue
-                            hist_w, _ = np.histogram(
-                                vals[use],
-                                bins=b_edges,
-                                weights=eff_w[use],
-                                density=density,
-                            )
-                            ax.step(
-                                centers,
-                                hist_w,
-                                where="mid",
-                                color=color,
-                                linestyle=SB_STYLES[cls_name],
-                                alpha=alpha,
-                                label=f"{source} {wp.name} {cls_name}",
-                            )
+                    # WP shading
+                    n_wp = len(wps)
+                    wp_shades = [
+                        lighten_color(base_color, amount=0.1 + 0.6 * (i / max(n_wp - 1, 1)))
+                        for i in range(n_wp)
+                    ]
 
-                        # Draw cut window if variable has a cut
+                    for w_i, wp in enumerate(wps):
+                        # WP-specific base color
+                        wp_color = wp_shades[w_i]
+
+                        # signal / background hue separation
+                        sig_color = wp_color
+                        bkg_color = shift_hue(wp_color, shift=0.25)
+
+                        # N-1 mask
+                        nm1_cuts = {k: v for k, v in wp.window_cuts.items() if k != var}
+                        nm1_mask = (self._apply_window_cuts_block(reg_df, nm1_cuts)
+                                    if nm1_cuts else np.ones(len(reg_df), dtype=bool))
+
+                        fig, ax = plt.subplots(figsize=(8, 6))
+
+                        # Plot signal
+                        use_sig = nm1_mask & is_sig
+                        hist_sig, _ = np.histogram(vals[use_sig], bins=b_edges,
+                                                   weights=eff_w[use_sig], density=density)
+                        ax.step(
+                            centers, hist_sig,
+                            where="mid",
+                            color=sig_color,
+                            linestyle="-",
+                            alpha=0.9,
+                            label=f"{source} {wp.name} signal"
+                        )
+
+                        # Plot background
+                        use_bkg = nm1_mask & is_bkg
+                        hist_bkg, _ = np.histogram(vals[use_bkg], bins=b_edges,
+                                                   weights=eff_w[use_bkg], density=density)
+                        ax.step(
+                            centers, hist_bkg,
+                            where="mid",
+                            color=bkg_color,
+                            linestyle="--",
+                            alpha=0.9,
+                            label=f"{source} {wp.name} background"
+                        )
+
+                        # Draw cut window
                         if var in wp.window_cuts:
                             lo, hi = wp.window_cuts[var]
                             ax.axvline(lo, color="k", linestyle=":", linewidth=1)
                             ax.axvline(hi, color="k", linestyle=":", linewidth=1)
-                            ax.fill_betweenx(
-                                [0, ax.get_ylim()[1]],
-                                lo,
-                                hi,
-                                color="grey",
-                                alpha=0.1,
-                            )
+                            ax.axvspan(lo, hi, color="grey", alpha=0.12)
+                        ax.text(
+                            0.05, 0.95,
+                            f"{reg}",
+                            transform=ax.transAxes,
+                            fontsize=18,
+                            fontweight="bold",
+                            va="top",
+                            ha="left",
+                        )
+
 
                         self._prep_axes(ax)
                         ax.set_xlabel(var)
                         ax.set_ylabel("Density" if density else "Counts")
-                        ax.set_title(f"N−1: {var} — {source} {wp.name} — Region: {reg}")
                         ax.legend(fontsize=7, frameon=True)
                         out = os.path.join(
                             outdir,

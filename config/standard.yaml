@@ -132,6 +132,7 @@ workflow:
            "abs_dEtaIn": "abs(dEtaIn)"
            "abs_dPhiIn": "abs(dPhiIn)"
            "abs_ooEMOop": "abs(ooEMOop)"
+           "nPU": "`Pileup.nPU`"
         inspect_variable:
             pt: [0, 200, 40]
             eta: [-3, 3, 24]
@@ -154,8 +155,9 @@ workflow:
             reltrackIso: [0, 2, 40]
             r9: [0, 1.0, 40]
             sigmaIetaIeta: [0, 0.05, 20]
+            nPU: [0, 100, 50]
     TrainCutBasedID_TMVA:
-        # skip: True
+        skip: True
         inputdir: /eos/user/t/tihsu/database/EGM_Scouting_ID_analysis/standard/data
         outputdir: /eos/user/t/tihsu/database/EGM_Scouting_ID_analysis/standard/train_results
         regions:
@@ -251,9 +253,14 @@ workflow:
         regions:
             - Barrel
             - Endcap
+            - Barrel+Endcap
         monitor_eff:
             pt: 
                 binning: [0, 5, 10, 20, 40, 60, 80, 100, 200, 500]
+            nPU: 
+                binning: [0, 100, 10]
+            eta:
+                binning: [-2.5, 2.5, 10]
         wp_sources:
             Re-Optimized(Iso): "/eos/user/t/tihsu/database/EGM_Scouting_ID_analysis/standard/train_results/{region}/CutBased_WPs_Iso_TMVA_seq.json" 
             Re-Optimized(noIso): "/eos/user/t/tihsu/database/EGM_Scouting_ID_analysis/standard/train_results/{region}/CutBased_WPs_noIso_TMVA_seq.json" 
