@@ -20,7 +20,7 @@ n_files: 3
 
 workflow:
     DeriveEffectiveArea:
-        skip: True
+#        skip: True
         n_files: 4
         plotdir: /eos/user/t/tihsu/database/EGM_Scouting_ID_analysis/standard_ext/EffectiveArea
         requirement: "((status == 1)|(status==3)) & (pt > 10)"
@@ -108,7 +108,7 @@ workflow:
 
 
     InspectDistribution:
-        skip: True
+#        skip: True
         kinematic_reweighting: BACKGROUND
         plotdir:  /eos/user/t/tihsu/database/EGM_Scouting_ID_analysis/standard_ext/plot_distribution
         storedir:  /eos/user/t/tihsu/database/EGM_Scouting_ID_analysis/standard_ext/data
@@ -163,7 +163,7 @@ workflow:
             sigmaIetaIeta: [0, 0.05, 20]
             nPU: [0, 100, 50]
     TrainCutBasedID_TMVA:
-        skip: True
+#        skip: True
         inputdir: /eos/user/t/tihsu/database/EGM_Scouting_ID_analysis/standard_ext/data
         outputdir: /eos/user/t/tihsu/database/EGM_Scouting_ID_analysis/standard_ext/train_results
         regions:
