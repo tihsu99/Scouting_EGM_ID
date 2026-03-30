@@ -469,6 +469,368 @@ class ValidationAnalyzer:
                 ax.legend(fontsize=7, ncol=2, frameon=True)
                 out = os.path.join(outdir, f"eff_{var}_region-{reg}.png")
                 self._save(fig, out)
+    # ---------------------------
+    # 2.6) Integrated ALL-WP efficiency (per source)
+    # ---------------------------
+    def plot_integrated_wp_efficiency(
+        self,
+        variables: Iterable[str],
+        binning: Dict[str, List[float]],
+        outdir: str,
+    ) -> None:
+        """
+        Produce one plot per (var, region, source) containing ALL WPs,
+        with very distinguishable WP colors and S/B separated by fill style.
+        """
+
+        # Very distinguishable, color-blind-safe palette
+        TOL_EXTENDED = [
+            "#4477AA",  # strong blue
+            "#EE6677",  # coral red
+            "#228833",  # deep green
+            "#CCBB44",  # olive/gold
+            "#66CCEE",  # sky blue
+            "#AA3377",  # magenta
+            "#BBBBBB",  # gray
+            "#2288AA",  # blue teal
+            "#DDCC77",  # warm sand
+            "#44AA99",  # turquoise green
+        ]
+
+        variables = list(variables)
+        regions = sorted(self.df[self.region_col].astype(str).unique())
+
+        for reg in regions:
+            reg_mask = self._mask_region(reg)
+            if not reg_mask.any():
+                continue
+
+            eff_w = self._effective_weights(reg_mask)
+            reg_df = self.df.loc[reg_mask, :]
+
+            # signal mask
+            col = self.df[self.class_col]
+            is_sig_global = col.to_numpy() if col.dtype == bool else (col.astype(int).to_numpy() == 1)
+
+            is_sig = is_sig_global[reg_mask]
+            is_bkg = ~is_sig
+
+            # iterate per source
+            for s_i, (source, wps) in enumerate(self.wp_sources.items()):
+
+                src_dir = os.path.join(outdir, source)
+                os.makedirs(src_dir, exist_ok=True)
+
+                for var in variables:
+                    vals = reg_df[var].to_numpy()
+
+                    bins_cfg = binning[var]
+                    if len(bins_cfg) == 3:
+                        vmin, vmax, nb = bins_cfg
+                        b_edges = np.linspace(vmin, vmax, nb + 1)
+                    else:
+                        b_edges = np.asarray(bins_cfg, dtype=float)
+
+                    centers = 0.5 * (b_edges[:-1] + b_edges[1:])
+                    xerr = 0.5 * (b_edges[1:] - b_edges[:-1])
+
+                    fig, ax = plt.subplots(figsize=(10, 8))
+
+                    wp_handles = []
+                    wp_labels = []
+
+                    # Loop over WPs
+                    for w_i, wp in enumerate(wps):
+                        wp_color = TOL_EXTENDED[w_i % len(TOL_EXTENDED)]
+
+                        pass_mask = self._pass_wp(reg_df, wp)
+
+                        # ------------------
+                        # SIGNAL (filled)
+                        # ------------------
+                        cls_vals = vals[is_sig]
+                        cls_w = eff_w[is_sig]
+                        sel = pass_mask[is_sig]
+
+                        tot, _ = np.histogram(cls_vals, bins=b_edges, weights=cls_w)
+                        pas, _ = np.histogram(cls_vals[sel], bins=b_edges, weights=cls_w[sel])
+
+                        with np.errstate(divide='ignore', invalid='ignore'):
+                            eff = np.where(tot > 0, pas / tot, np.nan)
+                            err = np.where(tot > 0, np.sqrt(eff * (1 - eff) / tot), np.nan)
+
+                        h_sig = ax.errorbar(
+                            centers, eff,
+                            xerr=xerr, yerr=err,
+                            fmt="o",
+                            markersize=5,
+                            capsize=2,
+                            markerfacecolor=wp_color,   # FILLED
+                            markeredgecolor=wp_color,
+                            color=wp_color,
+                            linestyle="none",
+                            alpha=0.9,
+                        )
+
+                        # ------------------
+                        # BACKGROUND (open)
+                        # ------------------
+                        cls_vals = vals[is_bkg]
+                        cls_w = eff_w[is_bkg]
+                        sel = pass_mask[is_bkg]
+
+                        tot, _ = np.histogram(cls_vals, bins=b_edges, weights=cls_w)
+                        pas, _ = np.histogram(cls_vals[sel], bins=b_edges, weights=cls_w[sel])
+
+                        with np.errstate(divide='ignore', invalid='ignore'):
+                            eff = np.where(tot > 0, pas / tot, np.nan)
+                            err = np.where(tot > 0, np.sqrt(eff * (1 - eff) / tot), np.nan)
+
+                        ax.errorbar(
+                            centers, eff,
+                            xerr=xerr, yerr=err,
+                            fmt="s",
+                            markersize=5,
+                            capsize=2,
+                            markerfacecolor="none",      # OPEN
+                            markeredgecolor=wp_color,
+                            color=wp_color,
+                            linestyle="none",
+                            alpha=0.9,
+                        )
+
+                        # Save WP handle & label ONCE (only from signal)
+                        wp_handles.append(h_sig)
+                        wp_labels.append(wp.name)
+
+                    # -----------------------
+                    # REGION LABEL
+                    # -----------------------
+                    ax.text(
+                        0.04, 0.95,
+                        f"{reg}",
+                        transform=ax.transAxes,
+                        fontsize=18,
+                        fontweight="bold",
+                        va="top",
+                    )
+
+                    # -----------------------
+                    # BEAUTIFUL CLEAN LEGEND
+                    # -----------------------
+                    sig_proxy = plt.Line2D(
+                        [0], [0],
+                        marker='o',
+                        color='black',
+                        markerfacecolor='black',
+                        linestyle='none',
+                        markersize=6
+                    )
+                    bkg_proxy = plt.Line2D(
+                        [0], [0],
+                        marker='s',
+                        color='black',
+                        markerfacecolor='none',
+                        markeredgecolor='black',
+                        linestyle='none',
+                        markersize=6
+                    )
+
+                    ax.legend(
+                        [sig_proxy, bkg_proxy] + wp_handles,
+                        ["signal", "background"] + wp_labels,
+                        fontsize=7,
+                        frameon=True,
+                        ncol=2
+                    )
+
+                    # -----------------------
+                    # AXIS + SAVE
+                    # -----------------------
+                    ax.set_xlabel(var)
+                    ax.set_ylabel("Efficiency")
+                    ax.set_ylim(0, 1.05)
+                    ax.grid(True, linestyle=":", alpha=0.3)
+
+                    out = os.path.join(
+                        src_dir,
+                        f"eff_integrated_{var}_region-{reg}_{source}.png",
+                    )
+                    self._save(fig, out)
+
+    # ---------------------------
+    # 2.7) TRUE N−1 efficiency plots: ALL WPs per plot
+    # ---------------------------
+    def plot_wp_nminus1_efficiency(
+        self,
+        variables: Iterable[str],
+        binning: Dict[str, List[float]],
+        outdir: str,
+    ) -> None:
+        """
+        For each REGION, for each SOURCE:
+    
+            For each CUT-NAME (removed):
+                For each VARIABLE:
+                    Plot efficiency vs variable for ALL WPs
+                    - signal: filled circle
+                    - background: open square
+                    - each WP gets a unique color
+        """
+    
+        TOL_EXTENDED = [
+            "#4477AA", "#EE6677", "#228833", "#CCBB44", "#66CCEE",
+            "#AA3377", "#BBBBBB", "#2288AA", "#DDCC77", "#44AA99",
+        ]
+    
+        variables = list(variables)
+        regions = sorted(self.df[self.region_col].astype(str).unique())
+    
+        for reg in regions:
+            reg_mask = self._mask_region(reg)
+            if not reg_mask.any():
+                continue
+    
+            eff_w  = self._effective_weights(reg_mask)
+            reg_df = self.df.loc[reg_mask, :]
+    
+            col = self.df[self.class_col]
+            is_sig_global = col.to_numpy() if col.dtype == bool else (col.astype(int).to_numpy() == 1)
+            is_sig = is_sig_global[reg_mask]
+            is_bkg = ~is_sig
+    
+            # for each source
+            for src_name, wps in self.wp_sources.items():
+                save_dir = os.path.join(outdir, src_name, "nminus1_efficiency")
+                os.makedirs(save_dir, exist_ok=True)
+    
+                # collect ALL cut names across all WPs
+                all_cut_names = set()
+                for wp in wps:
+                    all_cut_names.update(wp.window_cuts.keys())
+                all_cut_names = sorted(all_cut_names)
+    
+                # =========================================================
+                # ONE FIGURE PER removed_cut PER variable
+                # =========================================================
+                for removed_cut in all_cut_names:
+    
+                    for var in variables:
+    
+                        fig, ax = plt.subplots(figsize=(10, 8))
+    
+                        # centers + xerr
+                        bins_cfg = binning[var]
+                        if len(bins_cfg) == 3:
+                            vmin, vmax, nb = bins_cfg
+                            b_edges = np.linspace(vmin, vmax, nb + 1)
+                        else:
+                            b_edges = np.asarray(bins_cfg, float)
+    
+                        centers = 0.5 * (b_edges[:-1] + b_edges[1:])
+                        xerr    = 0.5 * (b_edges[1:] - b_edges[:-1])
+    
+                        vals = reg_df[var].to_numpy()
+    
+                        # -----------------------------------------------------
+                        # Loop over ALL WPs in SAME plot
+                        # -----------------------------------------------------
+                        for w_i, wp in enumerate(wps):
+                            wp_color = TOL_EXTENDED[w_i % len(TOL_EXTENDED)]
+    
+                            # N−1 mask for this WP
+                            if removed_cut not in wp.window_cuts:
+                                nm1_cuts = wp.window_cuts.copy()
+                            else:
+                                nm1_cuts = {k:v for k,v in wp.window_cuts.items() if k != removed_cut}
+    
+                            nm1_mask = (
+                                self._apply_window_cuts_block(reg_df, nm1_cuts)
+                                if nm1_cuts else
+                                np.ones(len(reg_df), bool)
+                            )
+    
+                            # =====================================================
+                            # SIGNAL (filled)
+                            # =====================================================
+                            cls_vals = vals[is_sig]
+                            cls_w    = eff_w[is_sig]
+                            sel      = nm1_mask[is_sig]
+    
+                            tot,_ = np.histogram(cls_vals, bins=b_edges, weights=cls_w)
+                            pas,_ = np.histogram(cls_vals[sel], bins=b_edges, weights=cls_w[sel])
+    
+                            with np.errstate(divide="ignore", invalid="ignore"):
+                                eff_s = np.where(tot > 0, pas / tot, np.nan)
+                                err_s = np.where(tot > 0, np.sqrt(eff_s * (1 - eff_s) / tot), np.nan)
+    
+                            ax.errorbar(
+                                centers, eff_s,
+                                xerr=xerr, yerr=err_s,
+                                fmt="o", markersize=6, capsize=2,
+                                markerfacecolor=wp_color,
+                                markeredgecolor=wp_color,
+                                linestyle="none",
+                                color=wp_color, alpha=0.9,
+                                label=f"{wp.name} (S)"
+                            )
+    
+                            # =====================================================
+                            # BACKGROUND (open)
+                            # =====================================================
+                            cls_vals = vals[is_bkg]
+                            cls_w    = eff_w[is_bkg]
+                            sel      = nm1_mask[is_bkg]
+    
+                            tot,_ = np.histogram(cls_vals, bins=b_edges, weights=cls_w)
+                            pas,_ = np.histogram(cls_vals[sel], bins=b_edges, weights=cls_w[sel])
+    
+                            with np.errstate(divide="ignore", invalid="ignore"):
+                                eff_b = np.where(tot > 0, pas / tot, np.nan)
+                                err_b = np.where(tot > 0, np.sqrt(eff_b * (1 - eff_b) / tot), np.nan)
+    
+                            ax.errorbar(
+                                centers, eff_b,
+                                xerr=xerr, yerr=err_b,
+                                fmt="s", markersize=6, capsize=2,
+                                markerfacecolor="none",
+                                markeredgecolor=wp_color,
+                                linestyle="none",
+                                color=wp_color, alpha=0.9,
+                                label=f"{wp.name} (B)"
+                            )
+    
+                        # -----------------------------------------------------
+                        # TEXT
+                        # -----------------------------------------------------
+                        ax.text(
+                            0.04, 0.95,
+                            f"{reg}\nN−1 remove: {removed_cut}",
+                            transform=ax.transAxes,
+                            fontsize=15, fontweight="bold",
+                            va="top"
+                        )
+    
+                        # -----------------------------------------------------
+                        # AXES
+                        # -----------------------------------------------------
+                        ax.set_xlabel(var)
+                        ax.set_ylabel("Efficiency (N−1)")
+                        ax.set_ylim(0, 1.2)
+                        ax.grid(True, linestyle=":", alpha=0.3)
+    
+                        # -----------------------------------------------------
+                        # LEGEND (auto, deduplicated by _nolegend_)
+                        # -----------------------------------------------------
+                        ax.legend(fontsize=9, frameon=True, ncol=2)
+    
+                        # save
+                        out = os.path.join(
+                            save_dir,
+                            f"nminus1_rm_{removed_cut}_region-{reg}_{src_name}_{var}.png"
+                        )
+                        self._save(fig, out)
+
 
     # ---------------------------
     # 3) N−1 plots
@@ -598,6 +960,307 @@ class ValidationAnalyzer:
                             f"nminus1_{var}_region-{reg}_{source}_{wp.name}.png",
                         )
                         self._save(fig, out)
+
+    # ---------------------------------------------------------------
+    # 3) Raw S/B distribution WITH WP thresholds (All sources)
+    # ---------------------------------------------------------------
+    def plot_cut_variable_distributions_all_sources(
+        self,
+        variables: Iterable[str],
+        binning: Dict[str, List[float]],
+        outdir: str,
+    ):
+        """
+        For each region + variable:
+            - plot signal/background distributions using consistent binning
+            - overlay ALL sources + ALL WPs threshold lines
+            - color scheme:
+                - each source gets a distinct base color
+                - within that source, each WP is a shade of that color
+        Saves:
+            outdir/combined_sources/cutvar_<var>_region-<reg>.png
+            outdir/<source>/cutvar_<var>_region-<reg>_<source>.png
+        """
+
+        # Strong color-blind friendly palette for SOURCES
+        SOURCE_COLORS = [
+            "#4477AA", "#EE6677", "#228833", "#CCBB44", "#66CCEE",
+            "#AA3377", "#BBBBBB", "#2288AA", "#DDCC77", "#44AA99",
+        ]
+
+        variables = list(variables)
+        regions = sorted(self.df[self.region_col].astype(str).unique())
+
+        for reg in regions:
+            reg_mask = self._mask_region(reg)
+            if not reg_mask.any():
+                continue
+
+            eff_w = self._effective_weights(reg_mask)
+            reg_df = self.df.loc[reg_mask, :]
+
+            # signal / bkg mask
+            col = self.df[self.class_col]
+            is_sig_global = col.to_numpy() if col.dtype == bool else (col.astype(int).to_numpy() == 1)
+            is_sig = is_sig_global[reg_mask]
+            is_bkg = ~is_sig
+
+            # ---------------------------------------------------------
+            # LOOP OVER VARIABLES
+            # ---------------------------------------------------------
+            for var in variables:
+
+                if var not in reg_df.columns:
+                    continue
+
+                vals = reg_df[var].to_numpy()
+
+                # consistent bins
+                bins_cfg = binning[var]
+                if len(bins_cfg) == 3:
+                    vmin, vmax, nb = bins_cfg
+                    b_edges = np.linspace(vmin, vmax, nb + 1)
+                else:
+                    b_edges = np.asarray(bins_cfg, float)
+
+                # -----------------------------------------------------
+                # 1) COMBINED PLOT OF ALL SOURCES
+                # -----------------------------------------------------
+                comb_dir = os.path.join(outdir, "combined_sources")
+                os.makedirs(comb_dir, exist_ok=True)
+
+                figC, axC = plt.subplots(figsize=(12, 9))
+
+                # ===========================================================
+                # signal / background histograms
+                # ===========================================================
+                axC.hist(
+                    vals[is_sig], bins=b_edges, weights=eff_w[is_sig],
+                    alpha=0.40, color="#1f77b4", density=True,
+                    label="Signal"
+                )
+                axC.hist(
+                    vals[is_bkg], bins=b_edges, weights=eff_w[is_bkg],
+                    alpha=0.40, color="#ff7f0e", density=True,
+                    label="Background"
+                )
+
+                # legend storage
+                source_handles, source_labels = [], []
+                wp_handles, wp_labels = [], []
+
+                # ===========================================================
+                # Draw WPs from ALL SOURCES
+                # ===========================================================
+                for s_i, (source, wps) in enumerate(self.wp_sources.items()):
+
+                    base_color = SOURCE_COLORS[s_i % len(SOURCE_COLORS)]
+                    n_wp = len(wps)
+
+                    # create WP shades for this source
+                    wp_shades = [
+                        lighten_color(base_color, amount=0.10 + 0.65 * (i/max(n_wp - 1, 1)))
+                        for i in range(n_wp)
+                    ]
+
+                    # add source legend entry once
+                    src_handle = axC.plot(
+                        [], [], color=base_color, linewidth=3,
+                        label=source
+                    )[0]
+                    source_handles.append(src_handle)
+                    source_labels.append(source)
+
+                    # draw each WP upper threshold
+                    for w_i, wp in enumerate(wps):
+
+                        if var not in wp.window_cuts:
+                            continue
+
+                        _, hi = wp.window_cuts[var]
+                        wp_color = wp_shades[w_i]
+
+                        h = axC.axvline(
+                            hi,
+                            color=wp_color, linestyle="--", linewidth=1.8,
+                            alpha=0.95
+                        )
+
+                        # add WP label only once globally
+                        if wp.name not in wp_labels:
+                            wp_handles.append(h)
+                            wp_labels.append(wp.name)
+
+                # ----------------------------------------------------------
+                # finalize combined plot
+                # ----------------------------------------------------------
+                axC.set_xlabel(var, fontsize=14)
+                axC.set_yscale("log")
+                axC.set_ylabel("Density", fontsize=14)
+                axC.set_title(f"{var} — Region: {reg}", fontsize=20, pad=10)
+
+                axC.grid(True, linestyle=":", alpha=0.3)
+                axC.set_ylim(bottom=0)
+
+                # 2-block legend: sources + WPs
+                legend = axC.legend(
+                    source_handles + wp_handles,
+                    source_labels + wp_labels,
+                    fontsize=12, frameon=True, ncol=2
+                )
+                legend._legend_box.align = "left"
+
+                outC = os.path.join(
+                    comb_dir,
+                    f"cutvar_{var}_region-{reg}.png"
+                )
+                self._save(figC, outC)
+
+                # ---------------------------------------------------------
+                # 2) Individual per-source plots
+                # ---------------------------------------------------------
+                for s_i, (source, wps) in enumerate(self.wp_sources.items()):
+                    src_dir = os.path.join(outdir, source)
+                    os.makedirs(src_dir, exist_ok=True)
+
+                    figS, axS = plt.subplots(figsize=(12, 9))
+
+                    # S/B hist
+                    axS.hist(
+                        vals[is_sig], bins=b_edges, weights=eff_w[is_sig],
+                        alpha=0.40, color="#1f77b4", density=True,
+                        label="Signal"
+                    )
+                    axS.hist(
+                        vals[is_bkg], bins=b_edges, weights=eff_w[is_bkg],
+                        alpha=0.40, color="#ff7f0e", density=True,
+                        label="Background"
+                    )
+
+                    base_color = SOURCE_COLORS[s_i % len(SOURCE_COLORS)]
+                    n_wp = len(wps)
+                    wp_shades = [
+                        lighten_color(base_color, amount=0.10 + 0.65 * (i/max(n_wp - 1, 1)))
+                        for i in range(n_wp)
+                    ]
+
+                    for w_i, wp in enumerate(wps):
+                        if var not in wp.window_cuts:
+                            continue
+
+                        _, hi = wp.window_cuts[var]
+                        wp_color = wp_shades[w_i]
+
+                        axS.axvline(
+                            hi,
+                            color=wp_color, linestyle="--", linewidth=1.8,
+                            alpha=0.95,
+                            label=wp.name if w_i == 0 else None,
+                        )
+
+                    axS.set_xlabel(var, fontsize=14)
+                    axS.set_ylabel("Density", fontsize=14)
+
+                    axS.grid(True, linestyle=":", alpha=0.3)
+                    axS.set_ylim(bottom=0)
+                    axS.legend(fontsize=12, frameon=True, ncol=2)
+
+                    outS = os.path.join(
+                        src_dir,
+                        f"cutvar_{var}_region-{reg}_{source}.png"
+                    )
+                    self._save(figS, outS)
+    # ---------------------------------------------------------------
+    # 4) Report Final Cuts
+    # ---------------------------------------------------------------
+
+
+    def make_grouped_wp_table(self, outdir: str):
+        """
+        Produce a grouped WP table:
+    
+               Iso                           noIso                    Default
+            WP70   WP80   WP90           WP70   WP80   WP90          WP90
+        var ---------------------------------------------------------------
+        hOverE       x      x      x        x      x      x            x
+        sigmaIEta    x      x      x        x      x      x            x
+    
+        Saved as CSV, Markdown, and PNG.
+        """
+    
+        rows = []
+    
+        # Collect all WP values
+        for source, wps in self.wp_sources.items():
+            for wp in wps:
+                for var, (lo, hi) in wp.window_cuts.items():
+                    rows.append({
+                        "Variable": var,
+                        "Source": source,
+                        "WP": wp.name,
+                        "Value": hi,   # only upper threshold
+                    })
+    
+        df = pd.DataFrame(rows)
+    
+        # Pivot into grouped column format
+        table = df.pivot_table(
+            index="Variable",
+            columns=["Source", "WP"],
+            values="Value",
+            aggfunc="first"
+        )
+    
+        # Sort levels: source alphabetically, WPs numerically if possible
+        def wp_sort_key(name):
+            # extract number from "WP70", "WP80", etc.
+            import re
+            m = re.search(r"(\d+)", name)
+            return int(m.group(1)) if m else name
+    
+        table = table.sort_index(axis=1, level=[0, 1],
+                                 sort_remaining=True,
+                                 key=lambda col: [wp_sort_key(c) for c in col])
+    
+        # Formatting of values
+        table = table.applymap(lambda v: f"{v:.4f}" if pd.notna(v) else "")
+    
+        # -----------------------------------------
+        # Save table to output directory
+        # -----------------------------------------
+        save_dir = os.path.join(outdir, "summary_grouped_table")
+        os.makedirs(save_dir, exist_ok=True)
+    
+        # CSV
+        table.to_csv(os.path.join(save_dir, "wp_grouped_table.csv"))
+    
+        # Markdown
+        with open(os.path.join(save_dir, "wp_grouped_table.md"), "w") as f:
+            f.write(table.to_markdown())
+    
+        # PNG rendering for Keynote
+        fig, ax = plt.subplots(figsize=(2 + 1.5*table.shape[1], 1 + 0.45*table.shape[0]))
+        ax.axis("off")
+    
+        tbl = ax.table(
+            cellText=table.values,
+            rowLabels=table.index,
+            colLabels=[" / ".join(col) for col in table.columns.to_flat_index()],
+            cellLoc="center",
+            loc="center"
+        )
+    
+        tbl.auto_set_font_size(False)
+        tbl.set_fontsize(10)
+        tbl.scale(1.2, 1.3)
+    
+        fig.tight_layout()
+        fig.savefig(os.path.join(save_dir, "wp_grouped_table.png"), dpi=300)
+        plt.close(fig)
+    
+        print(f"Saved grouped WP table in: {save_dir}")
+    
+        return table
 
 
 # -----------------------------
@@ -731,6 +1394,17 @@ def ValidateIDAnalysis(**kwargs):
             outdir=os.path.join(reg_out, "eff_vs_var"),
         )
 
+        # 2.5) Additional full + N-1 efficiency plots
+        va.plot_integrated_wp_efficiency(
+            variables=monitor_eff.keys(),
+            binning=eff_binning,
+            outdir=os.path.join(reg_out, "eff_integrated"),
+        )
+        va.plot_wp_nminus1_efficiency(
+            variables=monitor_eff.keys(),
+            binning=eff_binning,
+            outdir=os.path.join(reg_out, "eff_nminus1"),
+        )
         # 3) N−1 plots (variables)
         nm1_binning = {v: cfg["binning"] for v, cfg in variables.items()}
         va.plot_nminus1_distributions(
@@ -739,7 +1413,14 @@ def ValidateIDAnalysis(**kwargs):
             outdir=os.path.join(reg_out, "nminus1"),
             density=True,
         )
-
+        va.plot_cut_variable_distributions_all_sources(
+            variables=variables.keys(),
+            binning=nm1_binning,
+            outdir=os.path.join(reg_out, "cuts"),
+        )
+        va.make_grouped_wp_table(
+            outdir=os.path.join(reg_out, "cuts_values"),
+        )
         console.print(f"✅ [bold green]Validation complete for {region}[/bold green]")
         table.add_row(region, reg_out)
 

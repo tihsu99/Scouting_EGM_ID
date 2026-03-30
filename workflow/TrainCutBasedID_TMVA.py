@@ -11,6 +11,8 @@ from ROOT import TMVA, TCut
 
 import ROOT, tempfile, os
 from array import array
+from joblib import Parallel, delayed
+import os
 
 def rdf_to_ttree(rdf, treename="tree_tmp"):
     """Snapshot an RDataFrame to a temporary ROOT file and return the TTree."""
@@ -128,8 +130,8 @@ def tmva_train_one_wp_inmem(sig_df, bkg_df, var_list, bounds, out_dir, weight_co
         dl.AddVariable(v, "F")
 
     # Convert pandas→RDataFrame→TTree (in memory, no .root saved)
-    sig_rdf = ROOT.RDF.MakeNumpyDataFrame({c: sig_df[c].to_numpy() for c in var_list_extend})
-    bkg_rdf = ROOT.RDF.MakeNumpyDataFrame({c: bkg_df[c].to_numpy() for c in var_list_extend})
+    sig_rdf = ROOT.RDF.MakeNumpyDataFrame({c: np.clip(sig_df[c].to_numpy(), 0, None) for c in var_list_extend})
+    bkg_rdf = ROOT.RDF.MakeNumpyDataFrame({c: np.clip(bkg_df[c].to_numpy(), 0, None) for c in var_list_extend})
     sigTree, sig_path = rdf_to_ttree(sig_rdf, "sigTree")
     bkgTree, bkg_path = rdf_to_ttree(bkg_rdf, "bkgTree")
     sigFile = ROOT.TFile.Open(sig_path)
@@ -238,7 +240,7 @@ def train_cutbased_tmva_sequential_inmem(
     # Initial bounds
     bounds = {}
     for v in var_list:
-        lo = max(variables[v].get("min", float(np.nanmin(sig_tr[v]))), np.quantile(sig_tr[v], 0.001))
+        lo = max(max(variables[v].get("min", float(np.nanmin(sig_tr[v]))), np.quantile(sig_tr[v], 0.001)), 0)
         hi = min(variables[v].get("max", float(np.nanmax(sig_tr[v]))), np.quantile(sig_tr[v], 0.999))
         bounds[v] = (float(lo), float(hi))
 
@@ -354,41 +356,70 @@ def train_cutbased_tmva_sequential_inmem(
 
     return {"WPs": WPs, "roc": os.path.join(outdir, f"{tag}_ROC_curve.png")}
 
+
+def run_one_job(region, tag, variables, kwargs):
+    regions  = kwargs.get("regions", [])
+    inputdir = kwargs.get("inputdir")
+    variables_set = kwargs.get("variables")
+    outdir   = kwargs.get("outputdir")
+    target_efficiencies = kwargs.get("target_efficiencies", [0.90, 0.80, 0.70])
+    tmva_cycles = kwargs.get("tmva_cycles", 60)
+    tmva_popsize = kwargs.get("tmva_popsize", 120)
+    random_seed  = kwargs.get("random_seed", 12345)
+    train_ratio  = kwargs.get("train_ratio", 0.8)
+    n_workers    = kwargs.get("n_workers", 1)
+    n_signal = kwargs.get("n_signal", 9e19)
+    n_background = kwargs.get("n_background", 9e19)
+
+    print(f"[TMVA] region = {region}, tag = {tag}")
+    region_out = os.path.join(outdir, region)
+    ensure_dir(region_out)
+
+    return train_cutbased_tmva_sequential_inmem(
+        train_signal_path=os.path.join(inputdir, region, "train", "signal.parquet"),
+        train_bkg_path=os.path.join(inputdir, region, "train", "background.parquet"),
+        valid_signal_path=os.path.join(inputdir, region, "valid", "signal.parquet"),
+        valid_bkg_path=os.path.join(inputdir, region, "valid", "background.parquet"),
+        variables=variables,
+        target_efficiencies=target_efficiencies,
+        outdir=region_out,
+        tmva_cycles=tmva_cycles,
+        tmva_popsize=tmva_popsize,
+        random_seed=random_seed,
+        train_ratio=train_ratio,
+        tag=tag,
+        n_workers=1,      # prevent nested multiprocessing inside TMVA
+        n_signal=n_signal,
+        n_background=n_background
+    )
+
+
+
+
 # ---------------- API entry ----------------
 def TrainCutBasedID_TMVAAnalysis(**kwargs):
-    regions  = kwargs.pop("regions", [])
-    inputdir = kwargs.pop("inputdir")
-    variables_set = kwargs.pop("variables")
-    outdir   = kwargs.pop("outputdir")
-    target_efficiencies = kwargs.pop("target_efficiencies", [0.90, 0.80, 0.70])
-    tmva_cycles = kwargs.pop("tmva_cycles", 60)
-    tmva_popsize = kwargs.pop("tmva_popsize", 120)
-    random_seed  = kwargs.pop("random_seed", 12345)
-    train_ratio  = kwargs.pop("train_ratio", 0.8)
-    n_workers    = kwargs.pop("n_workers", 1)
-    n_signal = kwargs.pop("n_signal", 9e19)
-    n_background = kwargs.pop("n_background", 9e19)
-    for region in regions:
-        region_out = os.path.join(outdir, region); 
-        ensure_dir(region_out)
-        print(f"[TMVA] region = {region}")
-        for tag, variables in variables_set.items():
-            train_cutbased_tmva_sequential_inmem(
-                train_signal_path=os.path.join(inputdir, region, "train", "signal.parquet"),
-                train_bkg_path=os.path.join(inputdir, region, "train", "background.parquet"),
-                valid_signal_path=os.path.join(inputdir, region, "valid", "signal.parquet"),
-                valid_bkg_path=os.path.join(inputdir, region, "valid", "background.parquet"),
-                variables=variables,
-                target_efficiencies=target_efficiencies,
-                outdir=region_out,
-                tmva_cycles=tmva_cycles,
-                tmva_popsize=tmva_popsize,
-                random_seed=random_seed,
-                train_ratio=train_ratio,
-                tag=tag,
-                n_workers=n_workers,
-                n_signal=n_signal,
-                n_background=n_background
-            )
-    print("[TMVA] All regions finished.")
+    regions  = kwargs.get("regions", [])
+    inputdir = kwargs.get("inputdir")
+    variables_set = kwargs.get("variables")
+    outdir   = kwargs.get("outputdir")
+    target_efficiencies = kwargs.get("target_efficiencies", [0.90, 0.80, 0.70])
+    tmva_cycles = kwargs.get("tmva_cycles", 60)
+    tmva_popsize = kwargs.get("tmva_popsize", 120)
+    random_seed  = kwargs.get("random_seed", 12345)
+    train_ratio  = kwargs.get("train_ratio", 0.8)
+    n_workers    = kwargs.get("n_workers", 1)
+    n_signal = kwargs.get("n_signal", 9e19)
+    n_background = kwargs.get("n_background", 9e19)
+    # --- Create a list of tasks ---
+    tasks = [
+        (region, tag, variables)
+        for region in regions
+        for tag, variables in variables_set.items()
+    ]
+
+    # --- Run in parallel ---
+    results = Parallel(n_jobs=n_workers)(
+        delayed(run_one_job)(region, tag, variables, kwargs)
+        for region, tag, variables in tasks
+    )
 

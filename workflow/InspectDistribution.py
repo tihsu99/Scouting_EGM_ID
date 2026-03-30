@@ -176,10 +176,14 @@ def InspectDistributionAnalysis(**kwargs):
         for sample_name, weight in samples.items():
             sample_path = os.path.join(inputdir, sample_name)
             files = [os.path.join(sample_path, f) for f in os.listdir(sample_path) if f.endswith(".parquet")]
-            if n_files > 0:
+            if type(n_files) is int:
+              if n_files > 0:
                 n_files_sample = min(n_files, len(files))
                 files = files[:n_files_sample]
-
+            else:
+                n_files_sample = min(n_files[sample_name], len(files))
+                files = files[:n_files_sample]
+ 
 
             fileset[sample_name] = {
                 "files": files,

@@ -152,6 +152,8 @@ def DeriveEffectiveAreaAnalysis(**kwargs):
     # --- Build file list ---
     fileset = []
     for category, cat_info in process.items():
+        if not(category == "signal"):
+            continue
         samples = cat_info["samples"]
         for sample_name, _ in samples.items():
             sample_path = os.path.join(inputdir, sample_name)
