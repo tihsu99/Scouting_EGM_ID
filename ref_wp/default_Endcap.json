@@ -1,0 +1,13 @@
+{
+  "EE": {
+    "eff_selected_from_tmva": 0.9,
+    "window_cuts": {
+      "sigmaIetaIeta": [-1e30, 0.045],
+      "hOverE": [-1e30, 0.2],
+      "abs_dEtaIn": [-1e30, 0.012],
+      "abs_dPhiIn": [-1e30, 0.06],
+      "relecalIso": [-1e30, 0.1],
+      "reltrackIso": [-1e30, 0.001]
+    }
+  }
+}
