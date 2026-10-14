@@ -137,13 +137,32 @@ python3 -c 'import id_ntupler; import pyarrow.parquet; print("Converter imports 
 
 Use your own setup wrapper if `env.sh` does not provide the required dependencies.
 
+**`NoRecord: PDTRecord` in `finalGenParticles`:** the MC generator-particle
+pruner requires the particle data table. `nano_cfg.py` loads it with
+`process.load("SimGeneral.HepPDTESSource.pythiapdt_cfi")`. No CMSSW rebuild is
+needed. Farms contain a snapshot of this file: prepare a new farm after updating
+the repository, then repeat the complete local test in a new temporary directory.
+For example:
+
+```bash
+python3 ntuplizer.py config/ntuplizer.yaml \
+    --farm-dir farms/id_smoke_pdt --samples DYToLL_M50 \
+    --max-files 1 --max-events 100
+```
+
+In the main README's local-test block, set `farm="$PWD/farms/id_smoke_pdt"`.
+The Winter25 DY test reached this error after its scouting electron, photon,
+vertex, and rho modules succeeded on two events. This is partial input validation,
+not a completed Nano-to-Parquet test. `TrigReport Events ... passed` alone is not
+success when the output end path reports errors.
+
 **Missing input products:** inspect one input file from the generated job JSON.
 In the CMSSW environment, run `edmDumpEventContent` on that file's XRootD URL.
 The input must contain `hltScoutingEgammaPacker`,
 `hltScoutingPrimaryVertexPacker:primaryVtx`, `hltScoutingPFPacker:rho`, and the
 MiniAOD MC gen/pileup products. Ordinary MiniAOD without scouting products is
 not sufficient. The default recipe needs the 2024 scouting electron fields;
-the local test of the configured Winter22 dataset failed on its first two
+the local test of the previously configured Winter22 dataset failed on its first two
 processed events with missing scouting electrons and `hltScoutingPFPacker:rho`.
 Opening the ROOT file successfully only verifies access, not product compatibility.
 Do not use `TryToContinue` to treat this test as successful: skipping those

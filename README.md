@@ -94,10 +94,12 @@ in one job. `workflow.yaml` controls the stored columns and gen matching.
 `conversion.setup_script` selects the Coffea environment; it defaults to `env.sh`.
 
 The example sample key below is `DYToLL_M50`; replace it in both commands if
-you choose another key. The local test of the configured Winter22 DAS sample
-failed: the first two processed events had no scouting electron collection or
-`hltScoutingPFPacker:rho`. Use a sample with the required scouting products;
-changing the era modifier does not create missing input collections.
+you choose another key. The configured Winter25 DY sample passed the scouting
+modules on the first two tested events. That run then stopped because the MC
+configuration lacked `PDTRecord`; `nano_cfg.py` now loads its particle data table.
+Repeat the complete local test before production. The earlier Winter22 sample
+lacked scouting electrons and `hltScoutingPFPacker:rho`; changing the era modifier
+does not create missing input collections.
 
 CMSSW remains in your home directory. Condor writes temporary Nano and Parquet
 files in worker scratch and uploads the final Parquet to EOS. The worker must
@@ -226,8 +228,8 @@ After all jobs finish, copy `inputdir` from `farms/id_parquet_v1/training_input.
 into `config/standard.yaml`, check the sample names, and run section 4.
 There is no separate `condor.py` step in this combined mode.
 
-Current limitations: the configured Winter22 sample failed the local test due
-to missing scouting products; the converter also has an unresolved
+Current limitations: the Winter25 sample still needs a complete Nano-to-Parquet
+test after the `PDTRecord` fix; the converter also has an unresolved
 out-of-cone truth-label overwrite. See [validation and troubleshooting](ntuplizer/README.md)
 before treating the output as validated training data.
 

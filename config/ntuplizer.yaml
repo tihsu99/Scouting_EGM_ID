@@ -51,8 +51,7 @@ physics:
 samples:
   DYToLL_M50:
     enabled: true
-    # The local smoke test found missing scouting products in this input.
-    # Replace with a dataset containing the required scouting collections before production.
+    # Winter25: scouting modules passed on two events; rerun the full local test before production.
     das: "/DYto2L-4Jets_Bin-MLL-50_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-142X_mcRun3_2025_realistic_v9-v3/MINIAODSIM"
     is_mc: true
     das_instance: prod/global
