@@ -1,0 +1,58 @@
+# This is a template: set the shared CMSSW area, EOS directory, proxy and full DAS names.
+cmssw:
+  # Existing compiled area in your home/shared filesystem, accessible from Condor workers.
+  base: ~/CMSSW_15_1_0_pre3
+  release: CMSSW_15_1_0_pre3
+  scram_arch: el9_amd64_gcc12
+  cmsset_default: /cvmfs/cms.cern.ch/cmsset_default.sh
+  pset: ../ntuplizer/nano_cfg.py
+  # Reference recipe; you maintain and compile this code in the shared area.
+  source_repository: https://github.com/CMS-Run3ScoutingTools/cmssw.git
+  source_commit: 3bcde91ff6ce2e635c6672b5dfa3774a2a427986
+
+production:
+  eos_output: root://eosuser.cern.ch//eos/user/CHANGE_ME/scouting_id
+  campaign: id_parquet_v1
+  # parquet combines Nano production and ID conversion in one worker; nano keeps the two-step flow.
+  output_format: parquet
+  input_redirector: root://cms-xrd-global.cern.ch/
+  files_per_job: 1
+  max_events: -1
+  stageout_attempts: 3
+  id_workflow: ../workflow.yaml
+
+conversion:
+  # A self-contained shell wrapper sourcing your validated Coffea environment.
+  # Copied to the worker; use absolute paths inside it. Never source cmsenv here.
+  setup_script: ../env.sh
+  python: python3
+  workers: 2
+  chunk_size: 15000
+
+condor:
+  proxy: ${X509_USER_PROXY}
+  os: el9
+  job_flavour: workday
+  cpus: 2
+  memory_mb: 4000
+  disk_mb: 12000
+
+physics:
+  modifiers:
+    - Configuration.Eras.Modifier_run3_scouting_nanoAOD_2024_cff:run3_scouting_nanoAOD_2024
+  report_every: 1000
+  best_track:
+    # Preserve the Nano producer defaults. The PDF's separate analyzer used 5 GeV.
+    TrackPtMin: [12.0, 12.0]
+    TrackChi2OverNdofMax: [3.0, 2.0]
+    RelativeEnergyDifferenceMax: [1.0, 1.0]
+    DeltaPhiMax: [0.06, 0.06]
+
+samples:
+  DYToLL_M50:
+    enabled: true
+    das: /REPLACE_PRIMARY_DATASET/REPLACE_PROCESSED_DATASET/MINIAODSIM
+    is_mc: true
+    das_instance: prod/global
+    # Optional saved DAS LFNs, one /store/...root per line; bypasses the DAS query.
+    # file_list: ../inputs/DYToLL_M50.txt

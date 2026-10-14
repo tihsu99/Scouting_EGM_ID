@@ -113,9 +113,14 @@ if __name__ == "__main__":
     parser.add_argument("--store_path", help="Path to the HDF5 file")
     parser.add_argument("--index", default = 0)
     parser.add_argument("--files", nargs = "+")
-    parser.add_argument("--cpu", default = None)
+    parser.add_argument("--cpu", type=int, default = None)
+    parser.add_argument("--chunk-size", type=int, default=15000)
+    parser.add_argument("--strict-inputs", action="store_true",
+                        help="Fail if any input is unreadable instead of skipping it")
     # Parse command-line arguments
     args = parser.parse_args()
+    if args.chunk_size < 1 or (args.cpu is not None and args.cpu < 1):
+        parser.error("--chunk-size and --cpu must be positive")
     with open(args.workflow_yaml, "r") as f:
         config = yaml.safe_load(f)
 
@@ -126,11 +131,15 @@ if __name__ == "__main__":
     runner = Runner(
         executor=FuturesExecutor(compression=None, workers = n_workers),
         schema=NanoAODSchema,
-        chunksize=15000,
+        chunksize=args.chunk_size,
         maxchunks=None,
     )
 
     valid_files = [f for f in args.files if is_valid_root_file_xrootd(f)]
+    if args.strict_inputs and len(valid_files) != len(args.files):
+        raise RuntimeError("Unreadable input ROOT files: " + ", ".join(f for f in args.files if f not in valid_files))
+    if not valid_files:
+        raise RuntimeError("No readable input ROOT files")
 
     fileset = {
         "mydataset": valid_files  # args.files should be a list of file paths

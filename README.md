@@ -27,7 +27,21 @@ Important before running:
 - Replace user-specific paths (i.e. containing `tihsu`) in configs.
 - At minimum check `workflow.yaml` and `config/standard.yaml`.
 
-## 3. Step1: Produce ntuple (Could skip if you already have ntuples)
+## 3. Initial NanoAOD production and Step1 Parquet conversion
+
+If starting from a DAS dataset rather than existing Nano ROOT files, use the
+new [initial ntuplizer pipeline](ntuplizer/README.md) and
+[`config/ntuplizer.yaml`](config/ntuplizer.yaml). It runs CMSSW in Condor worker
+scratch and, by default, converts directly to ID-training Parquet in the same job.
+Only the final Parquet and receipt are uploaded to EOS; the intermediate Nano
+stays in scratch. Set `production.output_format: parquet` and configure the
+Coffea environment under `conversion`. Use the resulting `training_input.yaml`
+path in your analysis config and skip the standalone conversion below.
+With `output_format: nano`, it instead generates `id_workflow.yaml` for that
+conversion. The initial recipe
+supports scouting-enabled MINIAODSIM inputs; follow its one-file smoke run first.
+
+The following existing stage converts Nano ROOT files into Parquet:
 
 Run Condor submission:
 

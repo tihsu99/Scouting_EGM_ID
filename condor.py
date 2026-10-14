@@ -2,6 +2,7 @@ import os
 import argparse
 import math
 import yaml
+import shlex
 
 def split_files(all_files, num_chunks):
     chunk_size = math.ceil(len(all_files) / num_chunks)
@@ -26,7 +27,10 @@ def write_individual_run_script(script_name, chunk_file, store_path, index, work
         f.write(f"cd {os.getcwd()}\n")
         f.write(f"source {os.getcwd()}/env.sh\n")
         # python3 id_ntupler.py workflow.yaml
-        f.write(f"python3 id_ntupler.py {workflow_file} --store_path {store_path} --index {index} --files $(cat {chunk_file} | xargs)\n -c 3")
+        f.write(f"mapfile -t input_files < {shlex.quote(os.path.abspath(chunk_file))}\n")
+        f.write(f"python3 id_ntupler.py {shlex.quote(os.path.abspath(workflow_file))} "
+                f"--store_path {shlex.quote(store_path)} --index {index} "
+                '--files "${input_files[@]}" --cpu 4\n')
     os.chmod(script_name, 0o755)
 
 
@@ -68,10 +72,15 @@ def main():
     
 
     for process, info in config["samples"].items():
-        store_path = info["path"]
-        fname = info["fname"]
-        number = info["numbers"]
-        file_lists = ["root://cms-xrd-global.cern.ch//" + os.path.join(store_path,fname).replace(".root", f"_{i}.root") for i in range(1, number+1)]
+        if "files" in info:
+            file_lists = info["files"]
+        else:
+            store_path = info["path"]
+            fname = info["fname"]
+            number = info["numbers"]
+            file_lists = ["root://cms-xrd-global.cern.ch//" + os.path.join(store_path,fname).replace(".root", f"_{i}.root") for i in range(1, number+1)]
+        if not file_lists:
+            raise ValueError(f"No input files for {process}")
 
         chunks = split_files(file_lists, args.chunks)
 
@@ -88,4 +97,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
