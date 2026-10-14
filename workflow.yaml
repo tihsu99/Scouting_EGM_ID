@@ -12,6 +12,7 @@ samples:
         fname: scouting_nano.root
         numbers: 94
 
+# Nearest final-state generator electron; matches include the boundary.
 gen_matching_dR: 0.1
 
 proxy_file: /afs/cern.ch/user/t/tihsu/tmp/x509up
@@ -99,6 +100,6 @@ ntupler_store_values_for_electron:
   - showerEdep7
   - showerEdep8
   - showerEdep9
+  # 0 unmatched, 1 prompt, 2 direct tau decay, 3 other matched/nonprompt.
   - status
-
 

@@ -24,6 +24,34 @@ def is_valid_root_file_xrootd(path):
     except Exception:
         return False
 
+def match_electron_truth(electrons, gen_particles, max_dr):
+    """Label nearest final-state electrons: 0 unmatched, 1 prompt, 2 tau, 3 other."""
+    gen_ele = gen_particles[(abs(gen_particles.pdgId) == 11) & (gen_particles.status == 1)]
+    reco_momentum = ak.zip({
+        "pt": electrons.pt, "eta": electrons.eta,
+        "phi": electrons.phi, "mass": electrons.m,
+    }, with_name="Momentum4D")
+    gen_momentum = ak.zip({
+        "pt": gen_ele.pt, "eta": gen_ele.eta,
+        "phi": gen_ele.phi, "mass": gen_ele.mass,
+    }, with_name="Momentum4D")
+    pairs = ak.cartesian({"ele": reco_momentum, "gen": gen_momentum}, nested=True)
+    dr = pairs.ele.deltaR(pairs.gen)
+    closest_idx = ak.argmin(dr, axis=2)
+    closest_dr = ak.min(dr, axis=2)
+    matched = ak.fill_none(closest_dr <= max_dr, False)
+    flags = ak.fill_none(gen_ele[closest_idx].statusFlags, 0)
+
+    # CMS GenStatusFlags: bit 0 isPrompt, bit 4 isDirectTauDecayProduct.
+    prompt = (flags & (1 << 0)) != 0
+    from_tau = (flags & (1 << 4)) != 0
+    category = ak.where(from_tau, 2, ak.where(prompt, 1, 3))
+    electrons["status"] = ak.values_astype(ak.where(matched, category, 0), np.int32)
+    electrons["gen_idx"] = closest_idx
+    electrons["gen_dR"] = closest_dr
+    return electrons
+
+
 class Ntupler(processor.ProcessorABC):
     def __init__(self, config):
         self.config = config
@@ -49,43 +77,8 @@ class Ntupler(processor.ProcessorABC):
     def process(self, events):
         output = self.accumulator.identity()
 
-        # Add gen matching information
-        electrons = events.ScoutingElectron
-        gen_ele   = events.GenPart[(abs(events.GenPart.pdgId) == 11) & (events.GenPart.status == 1)]
-
-        electrons["momentum"] = ak.zip({
-            "pt": electrons.pt,
-            "eta": electrons.eta,
-            "phi": electrons.phi,
-            "mass": electrons.m
-        }, with_name = "Momentum4D")
-
-        gen_ele["momentum"] = ak.zip({
-           "pt": gen_ele.pt,
-           "eta": gen_ele.eta,
-           "phi": gen_ele.phi,
-           "mass": gen_ele.mass
-        }, with_name = "Momentum4D")
-
-
-        ele_gen_pairs = ak.cartesian({"ele": electrons, "gen": gen_ele}, nested=True)
-        dR = ele_gen_pairs["ele"]["momentum"].deltaR(ele_gen_pairs["gen"]["momentum"])
-
-        # Find the closest gen electron per reco electron
-        closest_idx = ak.argmin(dR, axis=2, keepdims=True)
-        closest_dR = ak.min(dR, axis=2)
-        closest_idx_flatten = ak.flatten(closest_idx, axis = -1)
-
-        electrons["gen_idx"] = ak.flatten(closest_idx, axis = -1)
-        electrons["gen_dR"] = closest_dR
-
-        # status: 0: UNMATCHED, 1: MATCHED TO TRUE PROMPT, 2: MATCHED TO TRUE ELECTRON FROM TAU, 3: MATCHED TO NON-PROMPT
-        electrons["status"] = ak.ones_like(electrons.pt)
-        electrons["status"] = ak.where(electrons.gen_dR > self.gen_matching_dR, ak.zeros_like(electrons.status), electrons.status)
-
-        matched_gen_ele = gen_ele[electrons.gen_idx]
-        electrons["status"] = ak.where((abs(matched_gen_ele.distinctParent.pdgId) > 50) & (matched_gen_ele.distinctParent.status == 2), ak.ones_like(electrons.status)*3, electrons.status)
-        electrons["status"] = ak.where((abs(matched_gen_ele.distinctParent.pdgId) == 15) & (matched_gen_ele.distinctParent.status == 2), ak.ones_like(electrons.status)*2, electrons.status)
+        electrons = match_electron_truth(events.ScoutingElectron, events.GenPart,
+                                         self.gen_matching_dR)
 
         for key in self.store_values_electron:
             output[key] += processor.column_accumulator(ak.to_numpy(ak.flatten(electrons[key])))

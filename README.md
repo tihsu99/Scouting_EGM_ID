@@ -101,6 +101,11 @@ Repeat the complete local test before production. The earlier Winter22 sample
 lacked scouting electrons and `hltScoutingPFPacker:rho`; changing the era modifier
 does not create missing input collections.
 
+The YAML also enables Winter25 `TT`, `TT_ext1`, `ZprimeTo2E_M6000`, and ten
+unfiltered QCD pT samples. See [sample selection](ntuplizer/README.md#winter25-sample-selection)
+for the bin coverage, extension handling, and weighting limits. Omitting
+`--samples` processes all enabled samples; the smoke commands below select only DY.
+
 CMSSW remains in your home directory. Condor writes temporary Nano and Parquet
 files in worker scratch and uploads the final Parquet to EOS. The worker must
 be able to read your CMSSW directory.
@@ -229,11 +234,26 @@ into `config/standard.yaml`, check the sample names, and run section 4.
 There is no separate `condor.py` step in this combined mode.
 
 Current limitations: the Winter25 sample still needs a complete Nano-to-Parquet
-test after the `PDTRecord` fix; the converter also has an unresolved
-out-of-cone truth-label overwrite. See [validation and troubleshooting](ntuplizer/README.md)
-before treating the output as validated training data.
+test after the `PDTRecord` and truth-label fixes. The current selections use prompt
+and direct tau-decay electrons as signal, and unmatched or other nonprompt
+electrons as background, within the configured sample lists. Regenerate old
+Parquet outputs with the corrected converter before training; see
+[truth labels and validation](ntuplizer/README.md#electron-truth-labels).
 
 ## 4. Step2: Luigi workflow
+
+Relative ECAL, HCAL, and track isolation use electron `pt` as the denominator:
+`iso/pt`, `(iso-rho*EA)/pt`, and `(iso-rho*EA-scale)/pt`. The isolation scale
+fits also use `1/pt`. `Esc = pt*cosh(eta)` is retained for the separate H/E
+correction. The isolation numerator branches stored by the ntuplizer are unchanged.
+
+After changing this definition, rerun `DeriveEffectiveArea` and
+`InspectDistribution` before training (set their `skip` fields to `False`).
+Regenerate the correction JSON, prepared training tables, and trained working
+points in a new analysis output directory; old energy-normalized isolation
+artifacts are not compatible. Raw isolation columns do not need regeneration
+for this denominator change, but old truth labels still require the corrected
+converter described above.
 
 Run analysis pipeline:
 
@@ -260,11 +280,11 @@ Step2 config demo (`config/standard.yaml` style):
 inputdir: /path/to/step1_parquet
 process:
   signal:
-    requirement: "((status == 1) | (status == 3)) & (pt > 10)"
+    requirement: "((status == 1) | (status == 2)) & (pt > 10)"
     samples:
       DYToLL_M50: 1.0
   background:
-    requirement: "((status == 0) | (status == 2)) & (pt > 10)"
+    requirement: "((status == 0) | (status == 3)) & (pt > 10)"
     samples:
       TTTo2L2Nu: 1.0
 
@@ -281,7 +301,7 @@ workflow:
   DeriveEffectiveArea:
     skip: false
     plotdir: /path/to/output/EffectiveArea
-    requirement: "((status == 1) | (status == 3)) & (pt > 10)"
+    requirement: "((status == 1) | (status == 2)) & (pt > 10)"
     # Module-specific n_workers overrides global n_workers
     n_workers: 4
     EffectiveArea: {}

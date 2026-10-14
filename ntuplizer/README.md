@@ -35,6 +35,58 @@ Paths in YAML are relative to the YAML file. The conversion wrapper is copied
 to workers, so use absolute paths inside it. Conversion runs in a fresh
 environment without inherited CMSSW Python/library paths.
 
+## Winter25 sample selection
+
+`config/ntuplizer.yaml` contains the user-supplied Winter25 datasets, enabled for
+production after local validation:
+
+| Sample keys | Purpose |
+| --- | --- |
+| `DYToLL_M50` | Existing prompt-electron baseline |
+| `TT`, `TT_ext1` | Inclusive ttbar and its additional production statistics |
+| `ZprimeTo2E_M6000` | 6 TeV Z-prime electron sample for high-pT studies |
+| `QCD_Pt_30to50` through `QCD_Pt_800to1000`, `QCD_Pt_1000` | Unfiltered PYTHIA QCD background coverage |
+
+The selected QCD bins are 30–50, 50–80, 80–120, 120–170, 170–300,
+300–470, 470–600, 600–800, 800–1000 GeV, followed by the `Pt-1000` tail.
+The exact DAS spelling and versions are preserved, including `Pt` capitalization
+and the `30to50` sample's `v3` suffix. The generator-scale bins are adjacent;
+they do not impose these bounds on reconstructed electron pT or guarantee flat
+electron statistics. There is no unfiltered bin below 30 GeV in the supplied
+list. Check low-pT electron coverage and high-pT statistics in the produced data.
+
+Do not combine this set with `Pt-600`, the separate bins starting at 1400 GeV,
+HT-binned MadGraph, EM/muon-enriched, or flat-pT samples without a separate
+stitching prescription. The `Pt-1000` sample is selected as the open tail;
+confirm its generator cuts from production provenance before normalization.
+
+The supplied dataset names are not a completed scouting compatibility test.
+Prepare and test one file per sample before full submission, for example:
+
+```bash
+python3 ntuplizer.py config/ntuplizer.yaml \
+    --farm-dir farms/qcd_1000_smoke --samples QCD_Pt_1000 \
+    --max-files 1 --max-events 100
+```
+
+In the main README's local-test block use `farm="$PWD/farms/qcd_1000_smoke"`
+and `jobs/QCD_Pt_1000_00001.json`. Without `--samples`, preparation includes
+all enabled samples. Use `enabled: false` to exclude any sample.
+
+`TT` is inclusive ttbar, not the legacy `TTTo2L2Nu` dataset. The old
+`config/standard.yaml` sample list is not automatically updated: after production,
+select the new sample keys and truth categories there. Keep `TT` and `TT_ext1`
+as separate output folders but normalize their combined statistics as one process,
+not two copies of the ttbar cross section. Prompt ttbar electrons can be signal;
+the dataset name alone is not an electron truth label.
+
+For physical spectra, QCD bins require cross sections and generator-weight sums;
+concatenating their rows with unit weights does not reproduce the physical pT
+spectrum. The current default Parquet does not retain `genWeight`, and this
+ntuplizer does not calculate cross-section normalization. Training sample balance
+and physical yield weighting must be chosen separately. A DAS cross-section
+field of zero in the supplied listing is not a usable normalization.
+
 ## Checks when something fails
 
 **`ModuleNotFoundError: PhysicsTools.NanoAOD.run3scouting_cff` after building:**
@@ -197,10 +249,42 @@ comparison, run the same input file and event limit through combined and separat
 production with identical settings, then compare the resulting tables allowing
 for row-order differences.
 
-The existing converter can overwrite `status = 0` for an out-of-cone match with a
-parent-based `status = 2` or `3`. This issue remains unresolved. Its default
-`status = 1` is not an explicit prompt-flag test. Validate these semantics before
-using the labels for training.
+## Electron truth labels
+
+The Parquet `status` column is assigned in `id_ntupler.py`, separately from the
+generator's `GenPart.status`. For each scouting electron, choose the nearest
+final-state generator electron (`abs(pdgId) == 11`, `GenPart.status == 1`) in
+the same event. Accept the match only when `deltaR <= gen_matching_dR`, set in
+`workflow.yaml` (default 0.1). No generator electron or an out-of-cone match always
+gives `status = 0`; ancestry cannot overwrite it. Matching is per reconstructed
+electron and does not enforce a one-to-one assignment.
+
+| Stored status | Definition | Selection within the configured MC samples |
+| --- | --- | --- |
+| `0` | Unmatched | Fake/background |
+| `1` | Matched electron with `isPrompt` | Signal |
+| `2` | Matched electron with `isDirectTauDecayProduct` | Signal |
+| `3` | Other matched electron, including heavy-flavour decays | Fake/background |
+
+Prompt and tau classification use the official
+[CMS GenStatusFlags](https://github.com/cms-sw/cmssw/blob/CMSSW_15_1_0_pre3/DataFormats/HepMCCandidate/interface/GenStatusFlags.h),
+bits 0 and 4. Direct tau decay takes precedence; no extra heavy-flavour-to-tau
+ancestry rule is applied. Electrons with neither flag are category 3, which is
+broader than heavy flavour alone. Missing parent records do not cause null labels
+because the classification uses the electron's flags instead of parent indexing.
+
+`config/standard.yaml` selects `(status == 1) | (status == 2)` for signal and
+`(status == 0) | (status == 3)` for background, retaining `pt > 10` and the existing
+sample lists. The effective-area selection uses the same signal categories.
+These cuts are applied during analysis; the ntuplizer stores all four categories.
+
+Old converter versions could overwrite unmatched labels and used a parent-based
+prompt fallback. Existing Parquet cannot be repaired by changing the training
+cuts alone: regenerate it from NanoAOD or MiniAOD using a new farm and a new EOS
+campaign. Keep old and corrected outputs separate. Synthetic tests cover the
+categories, empty collections, matching boundary, distant tau/hadron electrons,
+missing parents, YAML cuts, and a processor-to-Parquet round trip. Check the
+status counts and electron pT distributions on actual MC before training.
 
 For analysis, set `inputdir` to the mounted EOS campaign directory and make the
 `process` sample names match the produced directories. `training_input.yaml` is
