@@ -1,232 +1,146 @@
 # Scouting EGM ID
 
-A quick-start guide to run the full pipeline.
+Produce ID-training Parquet from DAS samples, then run the analysis.
 
-## 1. Clone the repository
+## 1. Set up the ntuplizer in your CMSSW area
 
-```bash
-git clone https://github.com/tihsu99/Scouting_EGM_ID.git
-cd Scouting_EGM_ID
-```
-
-## 2. Environment setup
-
-Load the CVMFS/LCG environment:
+In an EL9 shell, use your existing CMSSW directory (`cmssw.base` in the YAML).
+For the first setup in a clean CMSSW source checkout:
 
 ```bash
-source env.sh
+source /cvmfs/cms.cern.ch/cmsset_default.sh
+export SCRAM_ARCH=el9_amd64_gcc12
+cd /afs/cern.ch/user/t/tihsu/Scouting_EGM_ID_pipeline/CMSSW_15_1_0_pre3/src
+cmsenv
+
+git cms-init
+git remote add scouting-org https://github.com/CMS-Run3ScoutingTools/cmssw.git
+git fetch scouting-org asahasra_1510pre3_MakeNanoForERegress
+git checkout --detach 3bcde91ff6ce2e635c6672b5dfa3774a2a427986
+git cms-addpkg PhysicsTools/Scouting
+git cms-addpkg PhysicsTools/NanoAOD
+scram b -j 4
 ```
 
-Create a CMS proxy:
+Skip `git cms-init` and `git remote add` if already done. If the scouting code
+is already installed, just `cmsenv` and rebuild after your changes.
+The checkout selects the reference revision used by this pipeline.
 
-```bash
-voms-proxy-init --rfc --voms cms -valid 192:00
-```
+`PhysicsTools/Scouting` supplies the C++ producers; `PhysicsTools/NanoAOD`
+supplies the modified Nano tables. The `cmsRun` configuration is already in
+this repository at `ntuplizer/nano_cfg.py`.
 
-Important before running:
-- Replace user-specific paths (i.e. containing `tihsu`) in configs.
-- At minimum check `workflow.yaml` and `config/standard.yaml`.
+## 2. Edit the production YAML
 
-## 3. Produce ID training ntuples from DAS
+Edit [`config/ntuplizer.yaml`](config/ntuplizer.yaml):
 
-Run this stage on the CERN submission host. The combined pipeline is:
+- `cmssw.base`: your compiled CMSSW directory, without `/src`.
+- `samples.<name>.das`: the DAS dataset to process.
+- `production.eos_output`: your EOS output URL.
+- `production.campaign`: use `id_parquet_smoke_v1` for the first test.
 
-```text
-DAS MINIAODSIM -> CMSSW NanoAOD in Condor scratch -> ID Parquet -> EOS
-```
+Keep `production.output_format: parquet` to run Nano production and ID conversion
+in one job. `workflow.yaml` controls the stored columns and gen matching.
+`conversion.setup_script` selects the Coffea environment; it defaults to `env.sh`.
 
-CMSSW stays in your maintained home/shared directory. Each worker activates that
-area, returns to Condor scratch, runs both processing stages, and uploads only
-the Parquet output and its JSON receipt. No CMSSW archive is required.
+CMSSW remains in your home directory. Condor writes temporary Nano and Parquet
+files in worker scratch and uploads the final Parquet to EOS. The worker must
+be able to read your CMSSW directory.
 
-### 3.1 Prepare the CMSSW ntuplizer once
+## 3. Submit
 
-An ordinary CMSSW release is not enough: your area needs the scouting fork's
-compiled `Run3ScoutingEGammaP4RegressVarProducer` and modified NanoAOD tables.
-Follow [the CMSSW package setup commands](ntuplizer/README.md#install-the-scouting-ntuplizer-in-your-maintained-area)
-to add `PhysicsTools/Scouting` and `PhysicsTools/NanoAOD` to your area and compile.
-If they are already installed, use the plugin/configuration checks there instead.
-The reference setup is `CMSSW_15_1_0_pre3`, `el9_amd64_gcc12`.
-
-The entry points have different roles:
-
-| File | Role |
-| --- | --- |
-| `ntuplizer.py` | Query DAS, split files, generate and optionally submit Condor jobs |
-| `ntuplizer/nano_cfg.py` | CMSSW configuration passed to `cmsRun`; already supplied here |
-| `id_ntupler.py` | Convert the temporary Nano into electron-level ID Parquet |
-| `config/ntuplizer.yaml` | Samples, shared CMSSW path, EOS output and job resources |
-| `workflow.yaml` | ID columns and gen-matching settings used during conversion |
-
-You do not need to copy `nano_cfg.py` into CMSSW or run `run.sh` manually.
-Condor transfers the configuration and launches the worker.
-
-### 3.2 Configure and check the submission environment
-
-Use a fresh shell in this repository, separate from the shell where you activated
-CMSSW. The existing converter requires a compatible Coffea environment. Run:
+From the **Scouting_EGM_ID repository**, in a fresh Bash shell on an EL9 host
+with CVMFS (for example, lxplus), first prepare one small job:
 
 ```bash
 source env.sh
-python3 -c 'import yaml, id_ntupler; import pyarrow.parquet; print("Submission and conversion imports OK")'
 voms-proxy-init --rfc --voms cms -valid 192:00
 export X509_USER_PROXY="$(voms-proxy-info -path)"
-command -v dasgoclient condor_submit xrdcp xrdfs
-cp -n config/ntuplizer.yaml config/ntuplizer.local.yaml
-```
 
-`cp -n` preserves an existing local configuration. Edit that local file; do not
-replace the whole YAML with the partial settings below.
-
-| Field | What to set/check |
-| --- | --- |
-| `cmssw.base` | Your compiled release directory, without `/src`; same absolute path must work on workers |
-| `cmssw.release`, `scram_arch` | Must match that area; default EL9 architecture is `el9_amd64_gcc12` |
-| `cmssw.pset` | Keep `../ntuplizer/nano_cfg.py` for the supplied Nano recipe |
-| `samples.<name>.das` | Full DAS name of a sample containing the required scouting products |
-| `production.eos_output` | Writable `root://eosuser.cern.ch//eos/user/...` directory |
-| `production.campaign` | Use `id_parquet_smoke_v1` for the smoke test |
-| `production.output_format` | Keep `parquet` to combine Nano production and conversion |
-| `production.id_workflow` | Keep `../workflow.yaml` or point to your ID-column configuration |
-| `conversion.setup_script` | Self-contained wrapper for your validated Coffea environment; default `../env.sh` |
-| `condor.cpus`, `memory_mb`, `disk_mb` | Per-job resources; converter workers must not exceed requested CPUs |
-
-The DAS samples in `config/ntuplizer.local.yaml` select the production inputs.
-The old sample paths under `workflow.yaml` are ignored by this combined stage;
-only its ID columns and matching settings are used. YAML-relative paths are
-resolved relative to the YAML file.
-
-**Input check:** the current example selects a `Run3Winter22MiniAOD` dataset,
-while the default modifier and requested electron fields describe 2024 scouting.
-This input has not been validated. A `MINIAODSIM` dataset name does not guarantee
-that it contains scouting objects or the required shower variables. Follow the
-[input-product check](ntuplizer/README.md#check-the-input-products-before-submission)
-before submitting. Do not change the era alone and assume all requested fields
-will become available.
-
-### 3.3 Prepare, inspect and submit one smoke job
-
-After setting a distinct smoke campaign in the local YAML:
-
-```bash
-python3 ntuplizer.py config/ntuplizer.local.yaml \
+python3 ntuplizer.py config/ntuplizer.yaml \
     --farm-dir farms/id_smoke --samples DYToLL_M50 \
     --max-files 1 --max-events 100
+```
 
-cat farms/id_smoke/jobs/DYToLL_M50_00001.json
-cat farms/id_smoke/submit.sub
-condor_submit -dry-run farms/id_smoke/submit.ads farms/id_smoke/submit.sub
-condor_submit farms/id_smoke/submit.sub
+This only generates the farm. Use a new farm directory for each run.
+
+**Test locally before submitting.** With `output_format: parquet`, run the
+prepared job interactively. Replace `DYToLL_M50` above and below if testing
+another sample. CMSSW uses your compiled home area; data and caches stay in a
+new `/tmp` directory. The clean shell keeps the submit-side LCG environment out
+of CMSSW; the converter activates its own environment automatically.
+
+```bash
+farm="$PWD/farms/id_smoke"
+local_test=$(mktemp -d /tmp/scouting-id.XXXXXX)
+echo "Local test directory: $local_test"
+env -i HOME="$HOME" PATH=/usr/bin:/bin X509_USER_PROXY="$X509_USER_PROXY" \
+    /bin/bash --noprofile --norc -s -- "$farm" "$local_test" <<'BASH'
+set -eo pipefail
+cp "$1"/{runtime.env,nano_cfg.py,worker.py,convert_id.py,id_ntupler.py,id_config.yaml,conversion_env.sh} "$2/"
+cp "$1/jobs/DYToLL_M50_00001.json" "$2/job.json"
+cd "$2"
+export TMPDIR="$PWD/tmp" XDG_CACHE_HOME="$PWD/cache"
+mkdir -p "$TMPDIR" "$XDG_CACHE_HOME"
+source runtime.env
+source "$CMSSET_DEFAULT"
+cd "$CMSSW_AREA/src"
+cmssw_runtime=$(scram runtime -sh)
+eval "$cmssw_runtime"
+test "$CMSSW_VERSION" = "$CMSSW_RELEASE"
+cd "$2"
+cmsRun -j FrameworkJobReport.xml nano_cfg.py job=job.json
+python3 - <<'PY'
+import json
+from pathlib import Path
+from worker import inspect_root, convert_to_parquet
+job = json.loads(Path("job.json").read_text())
+print("Nano events:", inspect_root("scouting_nano.root", job["required_branches"]))
+output, report = convert_to_parquet(Path("job.json"), job)
+print(json.dumps(report, indent=2))
+print("LOCAL TEST PASSED:", output.resolve())
+PY
+BASH
+```
+
+Proceed only after `LOCAL TEST PASSED`. Inspect `$local_test/scouting_nano.root`,
+`$local_test/parquet/output_1.parquet`, and `$local_test/conversion_report.json`.
+Nothing is uploaded to EOS; files remain for debugging. If the test fails, fix
+the error first. An empty electron table may require a larger `--max-events`
+test. After changing YAML or pipeline code, generate a new farm to test the
+updated snapshot.
+
+**Submit the tested job to Condor** to check worker access and EOS upload:
+
+```bash
+condor_submit -dry-run farms/id_smoke/submit.ads farms/id_smoke/submit.sub && \
+    condor_submit farms/id_smoke/submit.sub
 condor_q
 ```
 
-Replace `DYToLL_M50` if you use a different sample key. Preparation without
-`--submit` does not submit anything. Existing farm directories are rejected;
-choose a new farm for each revised test. The sample/event limits apply per sample
-and per job, respectively.
+Logs are in `farms/id_smoke/logs/`; a successful job prints `COMPLETE`.
+The local test checks processing; the Condor test also checks worker access,
+resource limits, and EOS stage-out.
 
-Stop if the imports, input checks, preparation or Condor dry-run fail. For held
-jobs, use `condor_q -hold` and inspect `farms/id_smoke/logs/`. A successful worker
-prints `COMPLETE` in its `.out` log and exits with code zero. Then inspect the
-Parquet rows, columns and `status` distribution as described in the
-[smoke-result checks](ntuplizer/README.md#3-check-the-smoke-result-then-run-all-events).
-The expected output URL is in `farms/id_smoke/manifest.json`.
-
-### 3.4 Full production and training handoff
-
-Once the smoke result is understood, change `production.campaign` to a new value,
-for example `id_parquet_v1`, keep `production.max_events: -1`, and omit both
-smoke limits:
+After the smoke job succeeds, change `production.campaign` to `id_parquet_v1`,
+keep `max_events: -1` in the YAML, and submit without the smoke limits:
 
 ```bash
-python3 ntuplizer.py config/ntuplizer.local.yaml \
+python3 ntuplizer.py config/ntuplizer.yaml \
     --farm-dir farms/id_parquet_v1 --submit
 ```
 
-`--submit` runs the Condor dry-run before submitting. Keep your shared CMSSW area
-unchanged while jobs are queued or running. After all expected jobs pass, EOS
-contains:
+`--submit` generates the farm, checks the Condor submit file, and submits it.
 
-```text
-<eos_output>/<campaign>/<sample>/output_1.parquet
-<eos_output>/<campaign>/<sample>/output_1.parquet.json
-```
+The output is `<eos_output>/<campaign>/<sample>/output_N.parquet`.
+After all jobs finish, copy `inputdir` from `farms/id_parquet_v1/training_input.yaml`
+into `config/standard.yaml`, check the sample names, and run section 4.
+There is no separate `condor.py` step in this combined mode.
 
-Copy `inputdir` from `farms/id_parquet_v1/training_input.yaml` into your full
-analysis YAML, then continue to section 4. This generated file is only a path
-fragment. The analysis needs a mounted EOS/local directory and matching sample
-names under `process`; it does not accept an XRootD URL as `inputdir`.
-Review `n_files`: the current analysis configuration limits input to four files
-per sample, which is not automatically the full production.
-
-**Validation boundary:** local orchestration tests do not establish successful
-CMSSW/Coffea processing on your dataset. There is also an unresolved issue in the
-existing ID converter: parent-based status assignments can overwrite an
-out-of-cone unmatched label. Resolve/test the truth-label semantics before using
-these files as validated training inputs. Combining the stages preserves that
-existing implementation.
-
-### 3.5 Optional: convert already-existing Nano ROOT files
-
-Skip this subsection when using the combined `output_format: parquet` mode.
-The following older stage is for Nano ROOT files that already exist:
-
-Run Condor submission:
-
-```bash
-python3 condor.py workflow.yaml --store_path <OUTPUT_DIR> --chunks 20 --farm_dir chunks --submit
-```
-
-#### Arguments for the standalone converter
-
-- `workflow.yaml`: input config for samples, proxy, and stored branches.
-- `--store_path`: output directory for produced parquet files.
-- `--chunks`: number of file chunks (roughly number of jobs per sample).
-- `--farm_dir`: where chunk text files and Condor scripts are written.
-- `--submit`: actually submit jobs; without this flag only submission files are prepared.
-
-Main fields inside `workflow.yaml`:
-- `samples.<name>.path`: dataset directory (without AAA prefix).
-- `samples.<name>.fname`: ROOT file base name (e.g. `scouting_nano.root`).
-- `samples.<name>.numbers`: total file count.
-- `proxy_file`: your proxy path.
-- `gen_matching_dR`: reco/gen matching cone.
-- `ntupler_store_values_for_event`: event-level branches to store.
-- `ntupler_store_values_for_electron`: electron-level branches to store.
-
-Example `workflow.yaml` template:
-
-```yaml
-samples:
-  DYToEE_M0p1to4:
-    path: /store/user/<your_user>/<your_dataset>/0000/
-    fname: scouting_nano.root
-    numbers: 8
-  DYToLL_M50:
-    path: /store/user/<your_user>/<your_dataset>/0000/
-    fname: scouting_nano.root
-    numbers: 172
-
-gen_matching_dR: 0.1
-
-proxy_file: /afs/cern.ch/user/<first_letter>/<your_user>/tmp/x509up
-
-ntupler_store_values_for_event:
-  Pileup:
-    - nPU
-  ScoutingRho:
-    - fixedGridRhoFastjetAll
-
-ntupler_store_values_for_electron:
-  - pt
-  - eta
-  - phi
-  - hOverE
-  - sigmaIetaIeta
-  - status
-```
-
-Replace placeholder paths with your own directories and username (do not keep `tihsu` paths).
+Current limitations: the configured Winter22 sample has not been checked against
+the required 2024 scouting fields; the converter also has an unresolved
+out-of-cone truth-label overwrite. See [validation and troubleshooting](ntuplizer/README.md)
+before treating the output as validated training data.
 
 ## 4. Step2: Luigi workflow
 
