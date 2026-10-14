@@ -1,41 +1,91 @@
 # Scouting EGM ID
 
-Produce ID-training Parquet from DAS samples, then run the analysis.
+Produce ID-training Parquet from DAS samples that already contain scouting
+products, then run the analysis. This pipeline does not run HLT reconstruction
+to create scouting products from ordinary MiniAOD.
 
-## 1. Set up the ntuplizer in your CMSSW area
+## 1. Create and build CMSSW
 
-In an EL9 shell, use your existing CMSSW directory (`cmssw.base` in the YAML).
-For the first setup in a clean CMSSW source checkout:
+Run on an **EL9 CERN host with CVMFS**, such as lxplus.
+Run the following steps in order. Stop on an error before continuing.
+The build block starts a clean Bash process so an already sourced LCG/Coffea
+environment cannot change CMSSW's Python or library paths.
+These commands create a new installation under `$HOME/Scouting_EGM_ID_pipeline`.
+If you already have that CMSSW directory, either choose a new `pipeline_root`
+or use the [existing-area repair instructions](ntuplizer/README.md#checks-when-something-fails).
 
 ```bash
+pipeline_root="$HOME/Scouting_EGM_ID_pipeline"
+mkdir -p "$pipeline_root"
+env -i HOME="$HOME" USER="$(id -un)" PATH=/usr/bin:/bin PYTHONNOUSERSITE=1 \
+    /bin/bash --noprofile --norc -s -- "$pipeline_root" <<'CMSSW'
+set -eo pipefail
+shopt -s expand_aliases
 source /cvmfs/cms.cern.ch/cmsset_default.sh
 export SCRAM_ARCH=el9_amd64_gcc12
-cd /afs/cern.ch/user/t/tihsu/Scouting_EGM_ID_pipeline/CMSSW_15_1_0_pre3/src
+cd "$1"
+cmsrel CMSSW_15_1_0_pre3
+cd CMSSW_15_1_0_pre3/src
 cmsenv
 
 git cms-init
 git remote add scouting-org https://github.com/CMS-Run3ScoutingTools/cmssw.git
 git fetch scouting-org asahasra_1510pre3_MakeNanoForERegress
-git checkout --detach 3bcde91ff6ce2e635c6672b5dfa3774a2a427986
+git checkout -b codex/scouting-id-runtime 3bcde91ff6ce2e635c6672b5dfa3774a2a427986
 git cms-addpkg PhysicsTools/Scouting
 git cms-addpkg PhysicsTools/NanoAOD
 scram b -j 4
+cmsenv
+
+test "$(git rev-parse HEAD)" = 3bcde91ff6ce2e635c6672b5dfa3774a2a427986
+python3 - <<'PY'
+import os
+from pathlib import Path
+import sys
+expected = Path(os.environ["CMSSW_BASE"]) / "src/PhysicsTools/NanoAOD/python/run3scouting_cff.py"
+print("Python executable:", sys.executable, flush=True)
+print("CMSSW_BASE:", os.environ["CMSSW_BASE"], flush=True)
+print("Source exists:", expected.is_file(), flush=True)
+import PhysicsTools.NanoAOD.run3scouting_cff as scouting
+loaded = Path(scouting.__file__).resolve()
+print("Loaded scouting configuration:", loaded)
+assert loaded == expected.resolve(), "Python is not loading the local NanoAOD package"
+assert hasattr(scouting, "scoutingElectronRegressVarTable"), "Custom NanoAOD configuration is missing"
+print("CMSSW CONFIGURATION OK")
+PY
+edmPluginHelp -p Run3ScoutingEGammaP4RegressVarProducer
+edmPluginHelp -p Run3ScoutingElectronBestTrackProducer
+echo "CMSSW SETUP PASSED"
+CMSSW
 ```
 
-Skip `git cms-init` and `git remote add` if already done. If the scouting code
-is already installed, just `cmsenv` and rebuild after your changes.
-The checkout selects the reference revision used by this pipeline.
+Continue only after `CMSSW SETUP PASSED`. This checks the pinned Git revision,
+the Python configuration loaded from your local package, and both C++ plugins.
+Use a named branch: `git cms-addpkg` fails on a detached checkout.
+Run `cmsenv` again after the first build to refresh the runtime before checking
+the newly built packages. If importing fails, use the
+[Python import diagnostics](ntuplizer/README.md#checks-when-something-fails).
+The clean process also keeps CMSSW's environment out of the next steps.
 
 `PhysicsTools/Scouting` supplies the C++ producers; `PhysicsTools/NanoAOD`
 supplies the modified Nano tables. The `cmsRun` configuration is already in
 this repository at `ntuplizer/nano_cfg.py`.
 
-## 2. Edit the production YAML
+## 2. Get this repository and configure the sample
+
+In the same outer shell, clone this repository outside CMSSW:
+
+```bash
+git clone https://github.com/tihsu99/Scouting_EGM_ID.git "$pipeline_root/Scouting_EGM_ID"
+cd "$pipeline_root/Scouting_EGM_ID"
+```
+
+If you already have this repository, `cd` to that checkout instead of cloning.
 
 Edit [`config/ntuplizer.yaml`](config/ntuplizer.yaml):
 
-- `cmssw.base`: your compiled CMSSW directory, without `/src`.
-- `samples.<name>.das`: the DAS dataset to process.
+- `cmssw.base`: the full path printed by `echo "$pipeline_root/CMSSW_15_1_0_pre3"`, without `/src`.
+- `samples.<name>.das`: the scouting-enabled MINIAODSIM dataset to process.
 - `production.eos_output`: your EOS output URL.
 - `production.campaign`: use `id_parquet_smoke_v1` for the first test.
 
@@ -43,17 +93,26 @@ Keep `production.output_format: parquet` to run Nano production and ID conversio
 in one job. `workflow.yaml` controls the stored columns and gen matching.
 `conversion.setup_script` selects the Coffea environment; it defaults to `env.sh`.
 
+The example sample key below is `DYToLL_M50`; replace it in both commands if
+you choose another key. The local test of the configured Winter22 DAS sample
+failed: the first two processed events had no scouting electron collection or
+`hltScoutingPFPacker:rho`. Use a sample with the required scouting products;
+changing the era modifier does not create missing input collections.
+
 CMSSW remains in your home directory. Condor writes temporary Nano and Parquet
 files in worker scratch and uploads the final Parquet to EOS. The worker must
 be able to read your CMSSW directory.
 
 ## 3. Submit
 
-From the **Scouting_EGM_ID repository**, in a fresh Bash shell on an EL9 host
-with CVMFS (for example, lxplus), first prepare one small job:
+### 3.1 Prepare one file and 100 events
+
+Run from the **Scouting_EGM_ID repository**, in the outer Bash shell from
+steps 1–2. If continuing in a new shell, first `cd` to this repository.
 
 ```bash
 source env.sh
+python3 -c 'import yaml, id_ntupler, pyarrow.parquet; print("CONVERTER IMPORTS OK")'
 voms-proxy-init --rfc --voms cms -valid 192:00
 export X509_USER_PROXY="$(voms-proxy-info -path)"
 
@@ -62,9 +121,13 @@ python3 ntuplizer.py config/ntuplizer.yaml \
     --max-files 1 --max-events 100
 ```
 
-This only generates the farm. Use a new farm directory for each run.
+Continue only if the imports, proxy creation, and farm preparation succeed.
+This only generates the farm. Use a new farm directory for each run; replace
+`farms/id_smoke` consistently below if it already exists.
 
-**Test locally before submitting.** With `output_format: parquet`, run the
+### 3.2 Run the complete local test
+
+With `output_format: parquet`, run the
 prepared job interactively. Replace `DYToLL_M50` above and below if testing
 another sample. CMSSW uses your compiled home area; data and caches stay in a
 new `/tmp` directory. The clean shell keeps the submit-side LCG environment out
@@ -74,8 +137,9 @@ of CMSSW; the converter activates its own environment automatically.
 farm="$PWD/farms/id_smoke"
 local_test=$(mktemp -d /tmp/scouting-id.XXXXXX)
 echo "Local test directory: $local_test"
-env -i HOME="$HOME" PATH=/usr/bin:/bin X509_USER_PROXY="$X509_USER_PROXY" \
-    /bin/bash --noprofile --norc -s -- "$farm" "$local_test" <<'BASH'
+set -o pipefail
+env -i HOME="$HOME" PATH=/usr/bin:/bin PYTHONNOUSERSITE=1 X509_USER_PROXY="$X509_USER_PROXY" \
+    /bin/bash --noprofile --norc -s -- "$farm" "$local_test" <<'BASH' 2>&1 | tee "$local_test/local_test.log"
 set -eo pipefail
 cp "$1"/{runtime.env,nano_cfg.py,worker.py,convert_id.py,id_ntupler.py,id_config.yaml,conversion_env.sh} "$2/"
 cp "$1/jobs/DYToLL_M50_00001.json" "$2/job.json"
@@ -103,14 +167,39 @@ PY
 BASH
 ```
 
-Proceed only after `LOCAL TEST PASSED`. Inspect `$local_test/scouting_nano.root`,
-`$local_test/parquet/output_1.parquet`, and `$local_test/conversion_report.json`.
-Nothing is uploaded to EOS; files remain for debugging. If the test fails, fix
-the error first. An empty electron table may require a larger `--max-events`
-test. After changing YAML or pipeline code, generate a new farm to test the
-updated snapshot.
+### 3.3 Check the result and clean up
 
-**Submit the tested job to Condor** to check worker access and EOS upload:
+Proceed only after `LOCAL TEST PASSED` and a zero exit status from the block.
+The test checks the ROOT `Events` tree and required branches, then runs the ID
+converter and checks nonempty Parquet output, required columns, and readability.
+
+| Local file | What to inspect |
+| --- | --- |
+| `$local_test/local_test.log` | CMSSW and converter messages, including any failure |
+| `$local_test/FrameworkJobReport.xml` | CMSSW job report |
+| `$local_test/scouting_nano.root` | Intermediate NanoAOD `Events` tree |
+| `$local_test/parquet/output_1.parquet` | Final electron rows for the ID workflow |
+| `$local_test/conversion_report.json` | Row count, columns, and converter versions |
+
+Nothing is uploaded to EOS. Keep the directory if the test fails. An empty
+electron table may require a larger `--max-events` test. After changing YAML or
+pipeline code, generate a new farm and rerun in a new temporary directory.
+After repairing only the shared CMSSW installation, reuse the farm and rerun
+step 3.2. See [troubleshooting](ntuplizer/README.md#checks-when-something-fails)
+for missing producers or input products.
+
+After inspecting a successful test, you can remove its temporary files:
+
+```bash
+rm -r -- "${local_test:?Local test directory is not set}"
+unset local_test
+```
+
+This leaves the farm and your compiled CMSSW installation available for Condor.
+
+### 3.4 Submit the tested job to Condor
+
+Check worker access and EOS upload using the same prepared job:
 
 ```bash
 condor_submit -dry-run farms/id_smoke/submit.ads farms/id_smoke/submit.sub && \
@@ -137,8 +226,8 @@ After all jobs finish, copy `inputdir` from `farms/id_parquet_v1/training_input.
 into `config/standard.yaml`, check the sample names, and run section 4.
 There is no separate `condor.py` step in this combined mode.
 
-Current limitations: the configured Winter22 sample has not been checked against
-the required 2024 scouting fields; the converter also has an unresolved
+Current limitations: the configured Winter22 sample failed the local test due
+to missing scouting products; the converter also has an unresolved
 out-of-cone truth-label overwrite. See [validation and troubleshooting](ntuplizer/README.md)
 before treating the output as validated training data.
 

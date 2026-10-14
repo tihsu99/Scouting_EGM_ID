@@ -27,6 +27,14 @@ process.options = cms.untracked.PSet(
 process.source = cms.Source("PoolSource", fileNames=cms.untracked.vstring(job["input_files"]),
                             skipBadFiles=cms.untracked.bool(False))
 process.load("PhysicsTools.NanoAOD.run3scouting_cff")
+if not hasattr(process, "scoutingElectronRegressVarTable"):
+    scouting = importlib.import_module("PhysicsTools.NanoAOD.run3scouting_cff")
+    raise RuntimeError(
+        f"Loaded {scouting.__file__}, but scoutingElectronRegressVarTable is missing. "
+        "Install the custom PhysicsTools/NanoAOD and PhysicsTools/Scouting packages "
+        "in cmssw.base on a named Git branch, run scram b, and check the imported "
+        "module path. See the CMSSW setup in README.md."
+    )
 for name, values in physics["best_track"].items():
     if not hasattr(process.scoutingElectronBestTrack, name):
         raise ValueError("Unknown best-track parameter: " + name)

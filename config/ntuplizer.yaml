@@ -51,7 +51,9 @@ physics:
 samples:
   DYToLL_M50:
     enabled: true
-    das: /DYJetsToLL_M-50_TuneCP5_13p6TeV-madgraphMLM-pythia8/Run3Winter22MiniAOD-FlatPU0to70_122X_mcRun3_2021_realistic_v9_ext1-v2/MINIAODSIM
+    # The local smoke test found missing scouting products in this input.
+    # Replace with a dataset containing the required scouting collections before production.
+    das: /DYJetsToLL_M-50_TuneCP5_13p6TeV-madgraphMLM-pythia8/Run3Winter25MiniAOD-PilotWinter25wmLHEGS_142X_mcRun3_2025_realistic_v1-v2/MINIAODSIM
     is_mc: true
     das_instance: prod/global
     # Optional saved DAS LFNs, one /store/...root per line; bypasses the DAS query.

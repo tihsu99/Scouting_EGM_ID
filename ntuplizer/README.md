@@ -37,6 +37,87 @@ environment without inherited CMSSW Python/library paths.
 
 ## Checks when something fails
 
+**`ModuleNotFoundError: PhysicsTools.NanoAOD.run3scouting_cff` after building:**
+if `sys.path` contains LCG paths but no CMSSW package paths, the runtime is
+contaminated. Running `cmsenv` in that shell may not remove the inherited
+Python and library settings. First test the existing build in a clean process;
+set `cmssw_area` to the same directory as `cmssw.base` in your YAML:
+
+```bash
+cmssw_area="$HOME/Scouting_EGM_ID_pipeline/CMSSW_15_1_0_pre3"
+env -i HOME="$HOME" USER="$(id -un)" PATH=/usr/bin:/bin PYTHONNOUSERSITE=1 \
+    /bin/bash --noprofile --norc -s -- "$cmssw_area" <<'CMSSW'
+set -eo pipefail
+source /cvmfs/cms.cern.ch/cmsset_default.sh
+export SCRAM_ARCH=el9_amd64_gcc12
+cd "$1/src"
+cmssw_runtime=$(scram runtime -sh)
+eval "$cmssw_runtime"
+python3 - <<'PY'
+import os
+import sys
+from pathlib import Path
+base = Path(os.environ["CMSSW_BASE"])
+print("CMSSW_BASE:", base, flush=True)
+print("Python executable:", sys.executable, flush=True)
+expected = base / "src/PhysicsTools/NanoAOD/python/run3scouting_cff.py"
+print("Source exists:", expected.is_file(), flush=True)
+print("Python search paths:", sys.path, flush=True)
+import PhysicsTools.NanoAOD as nano
+print("NanoAOD package paths:", list(nano.__path__), flush=True)
+import PhysicsTools.NanoAOD.run3scouting_cff as scouting
+print("Loaded:", scouting.__file__)
+assert Path(scouting.__file__).resolve() == expected.resolve()
+assert hasattr(scouting, "scoutingElectronRegressVarTable")
+print("CONFIGURATION OK")
+PY
+CMSSW
+```
+
+If this prints `CONFIGURATION OK`, rerun the main README's local test without
+rebuilding. If the source is missing, check the checkout and package setup below.
+If it still fails, keep the printed interpreter, search paths, and package paths
+for diagnosis.
+
+Do not require a direct `python/PhysicsTools/NanoAOD/run3scouting_cff.py` link.
+[SCRAM's package initializer](https://github.com/cms-sw/cmssw-config/blob/scramv3/SCRAM/pyinit.py)
+can extend the package search path to `src/PhysicsTools/NanoAOD/python` instead.
+The earlier direct-link check was not a reliable test of build success.
+
+**`Process` has no `scoutingElectronRegressVarTable`:** the custom Python
+configuration was not loaded. In the configured CMSSW `src` directory after
+`cmsenv`, check:
+
+```bash
+git status --short
+git log -1 --oneline
+python3 - <<'PY'
+import PhysicsTools.NanoAOD.run3scouting_cff as scouting
+print(scouting.__file__)
+print("Regression producer available:", hasattr(scouting, "scoutingElectronRegressVarTable"))
+PY
+```
+
+The reference revision defines this producer. A path under the standard release
+on CVMFS usually means the local NanoAOD package is absent or not linked by the
+build. A local path with `False` means that copy lacks the custom definition.
+The earlier README used `git checkout --detach` before `git cms-addpkg`; CMS's
+package script requires a named branch. If `HEAD` is already at the reference
+revision, attach it to a new branch and finish setup:
+
+```bash
+git checkout -b codex/scouting-id-runtime
+git cms-addpkg PhysicsTools/Scouting
+git cms-addpkg PhysicsTools/NanoAOD
+scram b -j 4
+cmsenv
+```
+
+If `HEAD` differs, use the main README's pinned setup in a clean checkout.
+Repeat the import check; it must print `True`. Then rerun the local test.
+Updating the shared CMSSW area takes effect without regenerating the farm;
+changes to this repository's `nano_cfg.py` require a new farm snapshot.
+
 **Missing CMSSW plugin:** in your CMSSW `src` directory, run:
 
 ```bash
@@ -62,7 +143,17 @@ The input must contain `hltScoutingEgammaPacker`,
 `hltScoutingPrimaryVertexPacker:primaryVtx`, `hltScoutingPFPacker:rho`, and the
 MiniAOD MC gen/pileup products. Ordinary MiniAOD without scouting products is
 not sufficient. The default recipe needs the 2024 scouting electron fields;
-the currently configured Winter22 dataset is not validated for this recipe.
+the local test of the configured Winter22 dataset failed on its first two
+processed events with missing scouting electrons and `hltScoutingPFPacker:rho`.
+Opening the ROOT file successfully only verifies access, not product compatibility.
+Do not use `TryToContinue` to treat this test as successful: skipping those
+events does not supply the electron features needed for ID training.
+
+This pipeline consumes scouting products; it does not execute the scouting HLT
+menu. Use compatible scouting MC, or first establish an upstream HLT production
+with the required input tier and menu. Ordinary MiniAOD alone is not a general
+substitute for the raw/digitized detector inputs that an HLT rerun may require.
+After changing the sample, prepare a new farm and repeat the local test.
 
 **Held job:** run `condor_q -hold` and inspect the farm's `logs/` directory.
 Processing failures hold the job. Upload attempts are retried a limited number
