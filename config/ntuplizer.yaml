@@ -1,7 +1,7 @@
 # This is a template: set the shared CMSSW area, EOS directory, proxy and full DAS names.
 cmssw:
   # Existing compiled area in your home/shared filesystem, accessible from Condor workers.
-  base: ~/CMSSW_15_1_0_pre3
+  base: /afs/cern.ch/user/t/tihsu/Scouting_EGM_ID_pipeline/CMSSW_15_1_0_pre3
   release: CMSSW_15_1_0_pre3
   scram_arch: el9_amd64_gcc12
   cmsset_default: /cvmfs/cms.cern.ch/cmsset_default.sh
@@ -11,7 +11,7 @@ cmssw:
   source_commit: 3bcde91ff6ce2e635c6672b5dfa3774a2a427986
 
 production:
-  eos_output: root://eosuser.cern.ch//eos/user/CHANGE_ME/scouting_id
+  eos_output: root://eosuser.cern.ch//eos/user/t/tihsu/dataset/scouting_id
   campaign: id_parquet_v1
   # parquet combines Nano production and ID conversion in one worker; nano keeps the two-step flow.
   output_format: parquet
@@ -51,7 +51,7 @@ physics:
 samples:
   DYToLL_M50:
     enabled: true
-    das: /REPLACE_PRIMARY_DATASET/REPLACE_PROCESSED_DATASET/MINIAODSIM
+    das: /DYJetsToLL_M-50_TuneCP5_13p6TeV-madgraphMLM-pythia8/Run3Winter22MiniAOD-FlatPU0to70_122X_mcRun3_2021_realistic_v9_ext1-v2/MINIAODSIM
     is_mc: true
     das_instance: prod/global
     # Optional saved DAS LFNs, one /store/...root per line; bypasses the DAS query.
