@@ -93,6 +93,108 @@ while jobs are queued or running; they use its live libraries and Python files.
 The YAML source commit is a declared reference, not a verified snapshot of that
 shared area. If moving from EL8, compile your maintained area for EL9 first.
 
+### Install the scouting ntuplizer in your maintained area
+
+Skip the source checkout below if your maintained area already contains the
+needed custom packages. A standard release alone does not provide this custom
+shower-variable recipe. This repository supplies `nano_cfg.py`, while the C++
+producers and Nano table definitions belong in your CMSSW area.
+
+For a clean area that you intend to dedicate to this reference recipe, run the
+following in a CMS shell. Set `SCOUTING_CMSSW_BASE` to the same release directory
+as `cmssw.base` in your YAML. This installs into that existing area; it does not
+create another release or move it into scratch.
+
+```bash
+export SCOUTING_CMSSW_BASE=/path/to/your/CMSSW_15_1_0_pre3
+source /cvmfs/cms.cern.ch/cmsset_default.sh
+export SCRAM_ARCH=el9_amd64_gcc12
+cd "$SCOUTING_CMSSW_BASE/src"
+eval "$(scram runtime -sh)"
+
+# Initialize source tracking only if this area has not been initialized.
+if [ ! -e .git ]; then
+    git cms-init
+fi
+git status --short
+```
+
+Stop here if there are local changes or an existing customized branch you need
+to preserve. Integrate the required packages into that branch yourself rather
+than switching it blindly. For a clean area intended for this recipe, continue:
+
+```bash
+if ! git remote get-url scouting-org >/dev/null 2>&1; then
+    git remote add scouting-org https://github.com/CMS-Run3ScoutingTools/cmssw.git
+fi
+git remote get-url scouting-org
+# Verify the remote URL above is the CMS-Run3ScoutingTools/cmssw repository.
+git fetch scouting-org asahasra_1510pre3_MakeNanoForERegress
+git checkout --detach 3bcde91ff6ce2e635c6672b5dfa3774a2a427986
+git cms-addpkg PhysicsTools/Scouting
+git cms-addpkg PhysicsTools/NanoAOD
+scram b -j 2
+```
+
+Stop if any command fails. Both packages are needed: `PhysicsTools/Scouting`
+contains the C++ producers, and `PhysicsTools/NanoAOD` contains the modified
+Python tables and their scheduling definitions. Check the compiled result:
+
+```bash
+edmPluginHelp -p Run3ScoutingEGammaP4RegressVarProducer >/dev/null
+edmPluginHelp -p Run3ScoutingElectronBestTrackProducer >/dev/null
+python3 - <<'PY'
+from PhysicsTools.NanoAOD import run3scouting_cff as scouting
+for name in ('scoutingElectronBestTrack', 'scoutingElectronRegressVarTable',
+             'scoutingElectronTable', 'scoutingRhoTable'):
+    assert hasattr(scouting, name), name
+print('Scouting Nano configuration imports OK')
+PY
+```
+
+You do not need to install the PDF's flat-tree analyzer configuration for this
+workflow. Condor transfers this repository's `ntuplizer/nano_cfg.py` and executes
+it with `cmsRun`. It produces the Nano tables consumed by `id_ntupler.py`.
+
+### Check the input products before submission
+
+The selected file must contain the scouting electron/photon, primary vertex and
+rho products, as well as the MiniAOD MC products used by the standard gen/pileup
+tables. Relevant module labels include `hltScoutingEgammaPacker`,
+`hltScoutingPrimaryVertexPacker`, `hltScoutingPFPacker`, `prunedGenParticles`,
+`packedGenParticles`, `slimmedAddPileupInfo` and `offlineSlimmedPrimaryVertices`.
+The default configuration additionally requires the 2024 scouting electron
+format for its shower and track fields.
+
+In your configured submission shell, save one actual LFN from the selected DAS
+sample (replace the sample key if needed):
+
+```bash
+dataset=$(python3 - <<'PY'
+import yaml
+with open('config/ntuplizer.local.yaml') as stream:
+    print(yaml.safe_load(stream)['samples']['DYToLL_M50']['das'])
+PY
+)
+dasgoclient --query "file dataset=$dataset instance=prod/global" --limit 1 > /tmp/scouting-input-check.txt
+cat /tmp/scouting-input-check.txt
+```
+
+Use the configured `das_instance` if it differs from `prod/global`. Confirm the
+file contains an actual `/store/...root` LFN. Then in the CMSSW shell, with a
+valid CMS proxy, inspect it:
+
+```bash
+input_lfn=$(head -n 1 /tmp/scouting-input-check.txt)
+edmDumpEventContent "root://cms-xrd-global.cern.ch/$input_lfn"
+```
+
+Missing required products are a stop condition: the ntuplizer does not reconstruct
+missing scouting objects from ordinary MiniAOD. Module labels alone do not prove
+that all required fields are available; the CMSSW smoke run is the next check.
+In particular, the configured Winter22 sample is not validated against this
+2024-format recipe. Do not treat a successful DAS query as compatibility proof.
+
 ## 2. Configure samples and prepare a smoke job
 
 Return to the Scouting_EGM_ID checkout. The submission Python needs PyYAML;
