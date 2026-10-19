@@ -46,7 +46,12 @@ def load_samples(inputdir, process, n_files=-1, normalization=None):
                     if source in seen_inputs:
                         raise ValueError(f"Duplicate input file: {source}")
                     seen_inputs.add(source)
-                metadata.append(receipt["normalization"])
+                info = receipt.get("normalization")
+                if not isinstance(info, dict):
+                    raise ValueError(f"Missing preselection normalization: {path}. "
+                                     "Recover metadata from the source events before weighted analysis; "
+                                     "merged electron rows alone cannot supply it.")
+                metadata.append(info)
         frames[sample] = pd.concat(parts, ignore_index=True)
         reports[sample] = {"files": [str(p) for p in paths], "rows": len(frames[sample])}
         if normalization:

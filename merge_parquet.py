@@ -21,7 +21,9 @@ def merge_sample(sample, jobs, inputdir, target, destination, skip_failed, batch
     output = target / "merged.parquet"
     normalization = dict.fromkeys(SUM_FIELDS, 0)
     normalization.update(generator_bin_min=None, generator_bin_max=None)
-    report = {"planned": len(jobs), "included": [], "skipped": [], "rows": 0}
+    report = {"planned": len(jobs), "included": [], "skipped": [], "rows": 0,
+              "missing_normalization": []}
+    event_counts = []
     sources, dataset, provenance, schema, writer = [], None, None, None, None
     try:
         for job in jobs:
@@ -53,21 +55,27 @@ def merge_sample(sample, jobs, inputdir, target, destination, skip_failed, batch
                     raise ValueError(f"Duplicate input file: {source}")
                 seen_inputs.add(source)
                 sources.append(source)
-            metadata = receipt["normalization"]
-            for key in SUM_FIELDS:
-                value = metadata[key]
-                if not isinstance(value, (int, float)) or not math.isfinite(value):
-                    raise ValueError(f"Invalid normalization {key}: {path}")
-                if key != "sum_genweight" and value < 0:
-                    raise ValueError(f"Negative normalization {key}: {path}")
-                normalization[key] += value
-            for key, combine in (("generator_bin_min", min), ("generator_bin_max", max)):
-                value = metadata[key]
-                if value is not None:
-                    if not math.isfinite(value):
+            metadata = receipt.get("normalization")
+            if metadata is not None and (not isinstance(metadata, dict) or set(normalization) - metadata.keys()):
+                raise ValueError(f"Incomplete normalization metadata: {receipt_path}")
+            event_counts.append(receipt.get("events", (metadata or {}).get("events")))
+            if metadata is None:
+                report["missing_normalization"].append(path.name)
+            else:
+                for key in SUM_FIELDS:
+                    value = metadata[key]
+                    if not isinstance(value, (int, float)) or not math.isfinite(value):
                         raise ValueError(f"Invalid normalization {key}: {path}")
-                    previous = normalization[key]
-                    normalization[key] = value if previous is None else combine(previous, value)
+                    if key != "sum_genweight" and value < 0:
+                        raise ValueError(f"Negative normalization {key}: {path}")
+                    normalization[key] += value
+                for key, combine in (("generator_bin_min", min), ("generator_bin_max", max)):
+                    value = metadata[key]
+                    if value is not None:
+                        if not math.isfinite(value):
+                            raise ValueError(f"Invalid normalization {key}: {path}")
+                        previous = normalization[key]
+                        normalization[key] = value if previous is None else combine(previous, value)
             with path.open("rb") as stream:
                 parquet = pq.ParquetFile(stream)
                 if parquet.metadata.num_rows != receipt["rows"]:
@@ -94,12 +102,17 @@ def merge_sample(sample, jobs, inputdir, target, destination, skip_failed, batch
         merged = pq.ParquetFile(stream)
         if merged.metadata.num_rows != report["rows"]:
             raise ValueError(f"Merged row count mismatch for {sample}")
+    report["normalization_complete"] = not report["missing_normalization"]
+    if not report["normalization_complete"]:
+        normalization = None
     merged_receipt = {
         "sample": sample, "dataset": dataset, "input_files": sources,
         "output_url": str(destination / sample / output.name), "output_format": "parquet",
-        "events": normalization["events"], "rows": report["rows"],
+        "events": sum(event_counts) if all(isinstance(n, int) and n >= 0 for n in event_counts) else None,
+        "rows": report["rows"],
         "output_bytes": output.stat().st_size, "normalization": normalization,
         "provenance": provenance, "merged_files": report["included"],
+        "normalization_missing_files": report["missing_normalization"],
     }
     Path(str(output) + ".json").write_text(json.dumps(merged_receipt, indent=2) + "\n")
     return merged_receipt, report
@@ -143,7 +156,8 @@ def merge(config_path, inputdir, outdir, manifests, samples=None, skip_failed=Fa
     seen_inputs, merged_jobs = set(), []
     with tempfile.TemporaryDirectory(prefix="." + outdir.name + "-", dir=outdir.parent) as temporary:
         staging = Path(temporary)
-        print(f'{"Sample":30} {"Planned":>8} {"Merged":>8} {"Skipped":>8} {"Rows":>12}', flush=True)
+        print(f'{"Sample":30} {"Planned":>8} {"Merged":>8} {"Skipped":>8} '
+              f'{"Rows":>12} {"Normalization":>14}', flush=True)
         for sample, planned in jobs.items():
             receipt, summary = merge_sample(sample, planned, inputdir, staging / sample,
                                              outdir, skip_failed, batch_size, seen_inputs)
@@ -151,7 +165,8 @@ def merge(config_path, inputdir, outdir, manifests, samples=None, skip_failed=Fa
             merged_jobs.append({key: receipt[key] for key in
                                 ("sample", "dataset", "input_files", "output_url", "output_format")})
             print(f'{sample:30} {len(planned):8} {len(summary["included"]):8} '
-                  f'{len(summary["skipped"]):8} {summary["rows"]:12,}', flush=True)
+                  f'{len(summary["skipped"]):8} {summary["rows"]:12,} '
+                  f'{"complete" if summary["normalization_complete"] else "unavailable":>14}', flush=True)
         (staging / "manifest.json").write_text(json.dumps(merged_jobs, indent=2) + "\n")
         (staging / "merge_report.json").write_text(json.dumps(report, indent=2) + "\n")
         if outdir.exists():
