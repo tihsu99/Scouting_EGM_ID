@@ -57,16 +57,18 @@ class Ntupler(processor.ProcessorABC):
         self.config = config
         self.store_values_electron = config["ntupler_store_values_for_electron"]
         self.store_values_event = config["ntupler_store_values_for_event"]
+        self.store_event_scalars = config.get("ntupler_store_event_scalars", [])
         self.gen_matching_dR = config["gen_matching_dR"]
 
         self.store_values = deepcopy(self.store_values_electron)
+        self.store_values.extend(self.store_event_scalars)
 
         for collection, branches in self.store_values_event.items():
             for branch in branches:
                 self.store_values.append(f"{collection}.{branch}")
 
         self._accumulator = processor.dict_accumulator({ 
-            key: processor.column_accumulator(np.array([]))
+            key: processor.column_accumulator(np.array([], dtype=np.uint64 if key in self.store_event_scalars else float))
             for key in self.store_values
         })
 
@@ -82,6 +84,10 @@ class Ntupler(processor.ProcessorABC):
 
         for key in self.store_values_electron:
             output[key] += processor.column_accumulator(ak.to_numpy(ak.flatten(electrons[key])))
+
+        for key in self.store_event_scalars:
+            value = ak.broadcast_arrays(electrons.pt, getattr(events, key))[1]
+            output[key] += processor.column_accumulator(ak.to_numpy(ak.flatten(value)))
 
         for collection, branches in self.store_values_event.items():
             obj = getattr(events, collection)

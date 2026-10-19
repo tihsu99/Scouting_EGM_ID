@@ -82,10 +82,13 @@ the dataset name alone is not an electron truth label.
 
 For physical spectra, QCD bins require cross sections and generator-weight sums;
 concatenating their rows with unit weights does not reproduce the physical pT
-spectrum. The current default Parquet does not retain `genWeight`, and this
-ntuplizer does not calculate cross-section normalization. Training sample balance
-and physical yield weighting must be chosen separately. A DAS cross-section
-field of zero in the supplied listing is not a usable normalization.
+spectrum. New Parquet contains `Generator.weight`, `Generator.binvar`, and event
+identifiers. Combined-mode receipts contain the preselection generator-weight sums,
+including events with no electron candidates. Keep those receipts beside the
+Parquet files. The `postprocess.py` driver normalizes the QCD bins and the TT
+extension group using the verified cross sections in `config/postprocess.yaml`;
+see the main README. Training sample balance and physical yield weighting are
+separate. A DAS cross-section field of zero is not a usable normalization.
 
 ## Checks when something fails
 
@@ -229,8 +232,62 @@ After changing the sample, prepare a new farm and repeat the local test.
 **Held job:** run `condor_q -hold` and inspect the farm's `logs/` directory.
 Processing failures hold the job. Upload attempts are retried a limited number
 of times; there is no processing checkpoint. Scratch is cleaned on exit, so a
-retry repeats both stages. An empty electron table is currently treated as a
-failure.
+retry repeats both stages. An empty electron table with a valid schema is retained:
+its processed events must still contribute to the normalization denominator.
+Use a larger smoke sample if there are no electrons to inspect.
+
+**`Fatal system signal has occurred during exit` after the event summary:**
+job `16467473.477` processed all 46,760 input events, then `cmsRun` terminated
+with `SIGABRT`. The Python worker propagated this as exit code 1 before conversion
+or upload. This identifies a shutdown crash, not its underlying cause. The
+[CMSSW shutdown signal handler](https://github.com/cms-sw/cmssw/blob/CMSSW_15_1_0_pre3/FWCore/Services/plugins/InitRootHandlers.cc)
+prints this message without a stack trace. A successful event summary alone
+does not justify ignoring the process failure.
+
+Reproduce the exact failed input using the farm snapshot, not a new DAS query or
+the first file of the dataset. On lxplus, with a valid CMS proxy, run:
+
+```bash
+farm=/afs/cern.ch/user/t/tihsu/Scouting_EGM_ID_pipeline/Scouting_EGM_ID/farms/id_full
+job_file=DYToLL_M50_00478.json
+debug_dir=$(mktemp -d /tmp/scouting-debug.XXXXXX)
+echo "Debug directory: $debug_dir"
+export X509_USER_PROXY="$(voms-proxy-info -path)"
+set -o pipefail
+env -i HOME="$HOME" PATH=/usr/bin:/bin PYTHONNOUSERSITE=1 \
+    X509_USER_PROXY="$X509_USER_PROXY" \
+    /bin/bash --noprofile --norc -s -- "$farm" "$job_file" "$debug_dir" \
+    <<'BASH' 2>&1 | tee "$debug_dir/gdb.log"
+set -eo pipefail
+cp "$1/runtime.env" "$1/nano_cfg.py" "$3/"
+cp "$1/jobs/$2" "$3/job.json"
+cd "$3"
+export TMPDIR="$PWD/tmp" XDG_CACHE_HOME="$PWD/cache"
+mkdir -p "$TMPDIR" "$XDG_CACHE_HOME"
+source runtime.env
+source "$CMSSET_DEFAULT"
+cd "$CMSSW_AREA/src"
+cmssw_runtime=$(scram runtime -sh)
+eval "$cmssw_runtime"
+test "$CMSSW_VERSION" = "$CMSSW_RELEASE"
+cd "$3"
+ulimit -c 0
+command -v gdb
+gdb --batch \
+    -ex 'set pagination off' \
+    -ex 'handle SIGPIPE nostop noprint pass' \
+    -ex run -ex 'thread apply all bt' \
+    --args cmsRun -j FrameworkJobReport.xml nano_cfg.py job=job.json
+BASH
+```
+
+This runs Nano production only and retains logs and output in `debug_dir`; it
+does not stage out to EOS. Keep the full `gdb.log`, especially the signal and
+backtrace near its end. GDB's exit status is not a pipeline-success check. If
+the inferior exits normally, the original failure was not reproduced in this
+attempt. Do not assume all held jobs have this cause merely because they share
+the same `OnExitHold` expression. Inspect representative logs before choosing a
+recovery action, and do not bypass `cmsRun` exit-code checks.
 
 **Output already exists:** use a new campaign for new processing settings.
 A receipt-upload failure can leave a Parquet file without its JSON receipt;
@@ -290,7 +347,7 @@ For analysis, set `inputdir` to the mounted EOS campaign directory and make the
 `process` sample names match the produced directories. `training_input.yaml` is
 only an `inputdir` fragment. The current analysis has `n_files: 4`; adjust it if
 you intend to consume all files. An XRootD URL cannot replace a directory path
-for the existing `os.listdir` consumer.
+for the local/mounted Parquet consumer.
 
 ## Optional separate Nano production
 

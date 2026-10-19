@@ -58,6 +58,7 @@ def root_url(value):
 def required_branches(workflow):
     # status is created by id_ntupler.py, not stored by CMSSW.
     branches = {"run", "luminosityBlock", "event", "nScoutingElectron", "nGenPart"}
+    branches.update(workflow.get("ntupler_store_event_scalars", []))
     branches.update("ScoutingElectron_" + name for name in
                     workflow["ntupler_store_values_for_electron"] if name != "status")
     branches.update("ScoutingElectron_" + name for name in ("pt", "eta", "phi", "m"))
@@ -134,7 +135,7 @@ def prepare(config_path, farm, selected=None, max_files=None, max_events=None):
         conversion = {
             "python": settings.get("python", "python3"), "workers": workers,
             "chunk_size": positive(settings.get("chunk_size", 15000), "conversion.chunk_size"),
-            "required_columns": list(workflow["ntupler_store_values_for_electron"]) + [
+            "required_columns": list(workflow["ntupler_store_values_for_electron"]) + workflow.get("ntupler_store_event_scalars", []) + [
                 collection + "." + field
                 for collection, fields in workflow["ntupler_store_values_for_event"].items()
                 for field in fields

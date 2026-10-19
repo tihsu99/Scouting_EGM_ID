@@ -8,20 +8,41 @@ process:
     background:
         requirement: "((status == 0)|(status == 3)) & (pt > 10)"
         samples:
-            TTTo2L2Nu: 1.0
+            TT: 1.0
+            TT_ext1: 1.0
 
 region_definition:
     Barrel:
-        requirement: "(abs(eta) < 1.47)"
+        requirement: "(abs(eta) < 1.479)"
     Endcap:
-        requirement: "(abs(eta) > 1.47) & (abs(eta) < 2.5)"
+        requirement: "(abs(eta) >= 1.479) & (abs(eta) < 2.5)"
     Barrel+Endcap:
         requirement: "(abs(eta) < 2.5)"
-n_files: 4
+n_files: -1
+random_seed: 42
+
+plot_style:
+    max_series_per_panel: 8
+    rc_params:
+        figure.figsize: [10, 8]
+        font.size: 22
+        legend.fontsize: 12
+        legend.title_fontsize: 14
+        savefig.dpi: 150
+    legend:
+        loc: lower right
+        frameon: false
+        borderaxespad: 1.5
+    cms_label:
+        label: Preliminary
+        data: false
+        com: 13.6
+        loc: 0
+        fontsize: 20
 
 workflow:
     DeriveEffectiveArea:
-        skip: True
+        skip: False
         plotdir: /eos/user/t/tihsu/database/EGM_Scouting_ID_analysis/standard/EffectiveArea
         requirement: "((status == 1)|(status == 2)) & (pt > 10)"
         EffectiveArea:
@@ -33,7 +54,7 @@ workflow:
                 y: "pt*cosh(eta)*hOverE"
                 eta_bins: [0, 0.5, 1.0, 1.5, 2.0, 2.5]
                 y_type: "contour90"
-                x_bins: [10, 50, 40]
+                x_bins: [0, 80, 16]
                 fitted_func: "y = A1*x + A2"
             c_E:
                 x_title: "$E_{SC}$"
@@ -53,7 +74,7 @@ workflow:
                 y: "ecalIso"
                 eta_bins: [0, 1.0, 1.5, 2.0, 2.2, 2.3, 2.4, 2.5]
                 y_type: "mean"
-                x_bins: [10, 50, 40]
+                x_bins: [0, 80, 16]
                 fitted_func: "y = A1*x + A2"
             IH_EA:
                 x_title: "$\\rho$"
@@ -63,7 +84,7 @@ workflow:
                 y: "hcalIso"
                 eta_bins: [0, 1.0, 1.5, 2.0, 2.2, 2.3, 2.4, 2.5]
                 y_type: "mean"
-                x_bins: [10, 50, 40]
+                x_bins: [0, 80, 16]
                 fitted_func: "y = A1*x + A2"
             IT_EA:
                 x_title: "$\\rho$"
@@ -73,43 +94,48 @@ workflow:
                 y: "trackIso"
                 eta_bins: [0, 1.0, 1.5, 2.0, 2.2, 2.3, 2.4, 2.5]
                 y_type: "mean"
-                x_bins: [10, 50, 20]
+                x_bins: [0, 80, 16]
                 fitted_func: "y = A1*x + A2"
             IE_scale:   
-                x_title: "1/pT[/GeV]"
+                x_title: "1/E [1/GeV]"
                 y_title: "$relIsoWithEA(ECAL)$"
                 title: "$IE_scale$"
-                x: "1./pt"
-                y: "(ecalIso-`ScoutingRho.fixedGridRhoFastjetAll`*IE_EA)/pt"
+                x: "1./(pt*cosh(eta))"
+                y: "(ecalIso-`ScoutingRho.fixedGridRhoFastjetAll`*IE_EA)/(pt*cosh(eta))"
                 eta_bins: [0, 1.5, 2.5]
                 y_type: "mean"
-                x_bins: [0.02, 0.06, 40]
+                x_bins: [0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.04, 0.06, 0.1]
                 fitted_func: "y = A1*x + A2"
             IH_scale:   
-                x_title: "1/pT[/GeV]"
+                x_title: "1/E [1/GeV]"
                 y_title: "$relIsoWithEA(HCAL)$"
                 title: "$IH_scale$"
-                x: "1./pt"
-                y: "(hcalIso-`ScoutingRho.fixedGridRhoFastjetAll`*IH_EA)/pt"
+                x: "1./(pt*cosh(eta))"
+                y: "(hcalIso-`ScoutingRho.fixedGridRhoFastjetAll`*IH_EA)/(pt*cosh(eta))"
                 eta_bins: [0, 1.5, 2.5]
                 y_type: "mean"
-                x_bins: [0.02, 0.06, 40]
+                x_bins: [0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.04, 0.06, 0.1]
                 fitted_func: "y = A1*x + A2"
             IT_scale:   
-                x_title: "1/pT[/GeV]"
+                x_title: "1/E [1/GeV]"
                 y_title: "$relIsoWithEA(Track)$"
                 title: "$IT_scale$"
-                x: "1./pt"
-                y: "(trackIso-`ScoutingRho.fixedGridRhoFastjetAll`*IT_EA)/pt"
+                x: "1./(pt*cosh(eta))"
+                y: "(trackIso-`ScoutingRho.fixedGridRhoFastjetAll`*IT_EA)/(pt*cosh(eta))"
                 eta_bins: [0, 1.5, 2.5]
                 y_type: "mean"
-                x_bins: [0.02, 0.06, 40]
+                x_bins: [0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.04, 0.06, 0.1]
                 fitted_func: "y = A1*x + A2"
 
 
     InspectDistribution:
-        skip: True
+        skip: False
         kinematic_reweighting: BACKGROUND
+        training_weight_mode: absolute
+        reweight_binning:
+            pt: [10, 15, 20, 30, 40, 60, 80, 120, 200, 300, 500, 700, 1000, 2000, 5000, 10000]
+            eta: [-2.5, -2.0, -1.479, -1.0, -0.5, 0.0, 0.5, 1.0, 1.479, 2.0, 2.5]
+        stitch_binning: [10, 20, 30, 50, 80, 120, 170, 200, 300, 470, 600, 800, 1000]
         plotdir:  /eos/user/t/tihsu/database/EGM_Scouting_ID_analysis/standard/plot_distribution
         storedir:  /eos/user/t/tihsu/database/EGM_Scouting_ID_analysis/standard/data
         shuffle: True
@@ -121,20 +147,20 @@ workflow:
         define_variable:
            "Esc": "pt*cosh(eta)"
            "hOverE_calibrated": "hOverE-(c_rho * `ScoutingRho.fixedGridRhoFastjetAll`)/Esc"
-           "relecalIso": "ecalIso/pt"
-           "relhcalIso": "hcalIso/pt"
-           "reltrackIso": "trackIso/pt"
-           "relecalIsoWithEA": "(ecalIso-`ScoutingRho.fixedGridRhoFastjetAll`*IE_EA)/pt"
-           "relecalIsoWithEA_calibrated": "relecalIsoWithEA - IE_scale/pt"
-           "relhcalIsoWithEA": "(hcalIso-`ScoutingRho.fixedGridRhoFastjetAll`*IH_EA)/pt"
-           "relhcalIsoWithEA_calibrated": "relhcalIsoWithEA - IH_scale/pt"
-           "reltrackIsoWithEA": "(trackIso-`ScoutingRho.fixedGridRhoFastjetAll`*IT_EA)/pt"
-           "reltrackIsoWithEA_calibrated": "reltrackIsoWithEA - IT_scale/pt"
+           "relecalIso": "ecalIso/Esc"
+           "relhcalIso": "hcalIso/Esc"
+           "reltrackIso": "trackIso/Esc"
+           "relecalIsoWithEA": "(ecalIso-`ScoutingRho.fixedGridRhoFastjetAll`*IE_EA)/(pt*cosh(eta))"
+           "relecalIsoWithEA_calibrated": "relecalIsoWithEA - IE_scale/Esc"
+           "relhcalIsoWithEA": "(hcalIso-`ScoutingRho.fixedGridRhoFastjetAll`*IH_EA)/(pt*cosh(eta))"
+           "relhcalIsoWithEA_calibrated": "relhcalIsoWithEA - IH_scale/Esc"
+           "reltrackIsoWithEA": "(trackIso-`ScoutingRho.fixedGridRhoFastjetAll`*IT_EA)/(pt*cosh(eta))"
+           "reltrackIsoWithEA_calibrated": "reltrackIsoWithEA - IT_scale/Esc"
            "abs_dEtaIn": "abs(dEtaIn)"
            "abs_dPhiIn": "abs(dPhiIn)"
            "abs_ooEMOop": "abs(ooEMOop)"
         inspect_variable:
-            pt: [0, 200, 40]
+            pt: [10, 15, 20, 30, 50, 80, 120, 200, 300, 500, 700, 1000]
             eta: [-3, 3, 24]
             hOverE: [0, 0.2, 20]
             hOverE_calibrated: [0, 0.2, 20]
@@ -156,21 +182,19 @@ workflow:
             r9: [0, 1.0, 40]
             sigmaIetaIeta: [0, 0.05, 20]
     TrainCutBasedID_TMVA:
-        # skip: True
+        weight_col: training_weight
+        isolation_denominator: E
+        efficiency_tolerance: 0.03
         inputdir: /eos/user/t/tihsu/database/EGM_Scouting_ID_analysis/standard/data
         outputdir: /eos/user/t/tihsu/database/EGM_Scouting_ID_analysis/standard/train_results
         regions:
             - Barrel
             - Endcap
-        target_efficiencies:
-            - 0.95
-            - 0.9
-            - 0.8
-            - 0.7
+        target_efficiencies: [0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 0.98, 0.99]
         n_workers: 4
         n_signal: 100000
         n_background: 100000
-        tmva_cycles: 3
+        tmva_cycles: 60
         tmva_popsize: 100
         random_seed: 12345
         train_ratio: 0.8
@@ -182,17 +206,17 @@ workflow:
                 max: 999999
                 direction: less
                 binning: [0, 0.2, 20]
-            relecalIsoWithEA:
+            relecalIsoWithEA_calibrated:
                 min: 0
                 max: 999999
                 direction: less
                 binning: [0, 2, 40]
-            reltrackIsoWithEA:
+            reltrackIsoWithEA_calibrated:
                 min: 0
                 max: 999999
                 direction: less
                 binning: [0, 2, 40]
-            relhcalIsoWithEA:
+            relhcalIsoWithEA_calibrated:
                 min: 0
                 max: 999999
                 direction: less
@@ -252,9 +276,17 @@ workflow:
         regions:
             - Barrel
             - Endcap
+        pt_regions:
+            pt10to20: [10, 20]
+            pt20to200: [20, 200]
+            pt200to1000: [200, 1000]
         monitor_eff:
-            pt: 
-                binning: [0, 5, 10, 20, 40, 60, 80, 100, 200, 500]
+            pt:
+                label: "$p_T$ [GeV]"
+                binning: [10, 15, 20, 30, 50, 80, 120, 200, 300, 500, 700, 1000]
+            ScoutingRho.fixedGridRhoFastjetAll:
+                label: "$\\rho$ [GeV]"
+                binning: [0, 80, 16]
         wp_sources:
             Re-Optimized(Iso): "/eos/user/t/tihsu/database/EGM_Scouting_ID_analysis/standard/train_results/{region}/CutBased_WPs_Iso_TMVA_seq.json" 
             Re-Optimized(noIso): "/eos/user/t/tihsu/database/EGM_Scouting_ID_analysis/standard/train_results/{region}/CutBased_WPs_noIso_TMVA_seq.json" 

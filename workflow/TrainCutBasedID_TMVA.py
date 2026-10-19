@@ -3,10 +3,11 @@ import os, json, math, warnings
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
+from workflow.plotting import add_legend, configure_style, save_plot
 import xml.etree.ElementTree as ET
 
 import ROOT
+ROOT.gROOT.SetBatch(True)
 from ROOT import TMVA, TCut
 
 import ROOT, tempfile, os
@@ -49,40 +50,23 @@ def passes(df, variables, cuts_one_sided, dirs):
     return np.logical_and.reduce(conds) if conds else np.ones(len(df), dtype=bool)
 
 def parse_tmva_wps(weights_xml_path):
-    """Return list of {eff, window_cuts: {var:(min,max)}} read from TMVA weights."""
-    res = []
-    try:
-        tree = ET.parse(weights_xml_path)
-        root = tree.getroot()
-    except Exception as e:
-        warnings.warn(f"Failed to read TMVA XML {weights_xml_path}: {e}")
-        return res
-
-    # Most common layout: nodes with attribute eff and child Var(Name/Expression, Min/Max)
-    for block in root.findall(".//*[@eff]"):
-        eff_attr = block.get("eff")
-        try:
-            eff = float(eff_attr)
-        except Exception:
+    """Read populated MethodCuts bins; negative effB marks an unfilled bin."""
+    root = ET.parse(weights_xml_path).getroot()
+    variables = sorted(root.findall("./Variables/Variable"), key=lambda v: int(v.get("VarIndex")))
+    result = []
+    for block in root.findall("./Weights/Bin"):
+        if float(block.get("effB")) < 0:
             continue
-        cuts = {}
-        for vn in block.findall(".//Var"):
-            name = vn.get("Name") or vn.get("Expression") or vn.get("Label")
-            vmin = vn.get("Min"); vmax = vn.get("Max")
-            if name is None: continue
-            vmin = float(vmin) if vmin is not None else -np.inf
-            vmax = float(vmax) if vmax is not None else np.inf
-            cuts[name] = (vmin, vmax)
-        if cuts: res.append({"eff": eff, "window_cuts": cuts})
+        cuts = block.find("Cuts")
+        windows = {var.get("Expression"): (float(cuts.get(f"cutMin_{i}")), float(cuts.get(f"cutMax_{i}")))
+                   for i, var in enumerate(variables)}
+        if not windows or not np.isfinite(list(windows.values())).all():
+            raise ValueError(f"Invalid TMVA cut windows in {weights_xml_path}")
+        result.append({"eff": float(block.get("effS")), "window_cuts": windows})
+    if not result:
+        raise ValueError(f"No populated TMVA efficiency bins in {weights_xml_path}")
+    return result
 
-    # sort & de-dup
-    res.sort(key=lambda d: d["eff"])
-    out, seen = [], set()
-    for r in res:
-        k = round(r["eff"], 5)
-        if k not in seen:
-            seen.add(k); out.append(r)
-    return out
 
 def pick_nearest_eff(wps, target_eff):
     if not wps: return None
@@ -100,7 +84,7 @@ def to_one_sided(window_cuts, directions):
 
 # ---------------- TMVA Training for one WP with bounds ----------------
 def tmva_train_one_wp_inmem(sig_df, bkg_df, var_list, bounds, out_dir, weight_col,
-                            train_ratio, method_name, ncycles, popsize, random_seed, eff_target, n_signal, n_background, n_workers=1):
+                            train_ratio, method_name, ncycles, popsize, random_seed, eff_target, n_signal, n_background, n_workers=1, efficiency_tolerance=0.03):
     """
     sig_df, bkg_df: pandas DataFrames
     bounds: {var: (lo, hi)} -> will be passed to CutsGA as CutRangeMin/Max
@@ -109,6 +93,7 @@ def tmva_train_one_wp_inmem(sig_df, bkg_df, var_list, bounds, out_dir, weight_co
     ensure_dir(out_dir)
     #ROOT.EnableImplicitMT()  # multi-CPU (OpenMP inside TMVA)
     ROOT.TMVA.gConfig().fOMPThreads = n_workers
+    ROOT.gRandom.SetSeed(random_seed)
 
     outfile_path = os.path.join(out_dir, f"TMVA_{method_name}.root")
     output = ROOT.TFile(outfile_path, "RECREATE")
@@ -119,7 +104,9 @@ def tmva_train_one_wp_inmem(sig_df, bkg_df, var_list, bounds, out_dir, weight_co
         "!V:!Silent:Color:DrawProgressBar:Transformations=I"
     )
 
-    dl = TMVA.DataLoader("dataset")
+    dataset_name = f"dataset_{method_name}"
+    ROOT.TMVA.gConfig().GetIONames().fWeightFileDirPrefix = os.path.abspath(out_dir)
+    dl = TMVA.DataLoader(dataset_name)
 
     var_list_extend = [v for v in var_list]
     if weight_col is not None:
@@ -128,8 +115,9 @@ def tmva_train_one_wp_inmem(sig_df, bkg_df, var_list, bounds, out_dir, weight_co
         dl.AddVariable(v, "F")
 
     # Convert pandas→RDataFrame→TTree (in memory, no .root saved)
-    sig_rdf = ROOT.RDF.MakeNumpyDataFrame({c: sig_df[c].to_numpy() for c in var_list_extend})
-    bkg_rdf = ROOT.RDF.MakeNumpyDataFrame({c: bkg_df[c].to_numpy() for c in var_list_extend})
+    from_numpy = getattr(ROOT.RDF, "FromNumpy", None) or ROOT.RDF.MakeNumpyDataFrame
+    sig_rdf = from_numpy({c: sig_df[c].to_numpy() for c in var_list_extend})
+    bkg_rdf = from_numpy({c: bkg_df[c].to_numpy() for c in var_list_extend})
     sigTree, sig_path = rdf_to_ttree(sig_rdf, "sigTree")
     bkgTree, bkg_path = rdf_to_ttree(bkg_rdf, "bkgTree")
     sigFile = ROOT.TFile.Open(sig_path)
@@ -156,7 +144,7 @@ def tmva_train_one_wp_inmem(sig_df, bkg_df, var_list, bounds, out_dir, weight_co
 
 
     dl.PrepareTrainingAndTestTree(TCut(""), TCut(""),
-        f"nTrain_Signal={n_train_sig}:nTrain_Background={n_train_bkg}:nTest_Signal={n_test_sig}:nTest_Background={n_test_bkg}:SplitMode=Random:!V")
+        f"nTrain_Signal={n_train_sig}:nTrain_Background={n_train_bkg}:nTest_Signal={n_test_sig}:nTest_Background={n_test_bkg}:SplitMode=Random:SplitSeed={random_seed}:!V")
 
     # Build CutsGA options with per-variable range constraints.
     name_opts, idx_opts = [], []
@@ -183,42 +171,29 @@ def tmva_train_one_wp_inmem(sig_df, bkg_df, var_list, bounds, out_dir, weight_co
     factory.TestAllMethods()
     factory.EvaluateAllMethods()
 
-    output.Close()
     # Optional cleanup
     sigFile.Close()
     bkgFile.Close()
     os.remove(sig_path)
     os.remove(bkg_path)
-    weights_xml = os.path.join(out_dir, "dataset", "weights",
-                               f"TMVAClassification_{method_name}.weights.xml")
+    weights_xml = os.path.join(os.path.abspath(out_dir), dataset_name, "weights", f"TMVAClassification_{method_name}.weights.xml")
     if not os.path.exists(weights_xml):
-        alt = os.path.join("dataset", "weights", f"TMVAClassification_{method_name}.weights.xml")
-        if os.path.exists(alt): weights_xml = alt
+        raise FileNotFoundError(weights_xml)
+    selected = pick_nearest_eff(parse_tmva_wps(weights_xml), eff_target)
+    output.Close()
+    if abs(selected["eff"] - eff_target) > efficiency_tolerance:
+        raise ValueError(f"TMVA did not populate a bin near efficiency {eff_target}; increase cycles/population or statistics")
+    return weights_xml, selected["window_cuts"], selected["eff"]
 
-
-    method = factory.GetMethod("dataset", method_name)
-    # Explicitly cast to MethodCuts
-    method_cuts = TMVA.MethodCuts.Class().DynamicCast(TMVA.MethodCuts.Class(), method)
-    #if not method_cuts:
-    #    raise RuntimeError("Failed to cast method to TMVA::MethodCuts")
-    nvars = len(var_list)   # number of input variables
-
-    cutLo = ROOT.std.vector('double')(nvars)
-    cutHi = ROOT.std.vector('double')(nvars)
-    method_cuts.GetCuts(float(eff_target), cutLo, cutHi)
-
-    output_cut = dict()
-    for i, v in enumerate(var_list):
-        lo, hi = bounds[v]
-        output_cut[v] = (cutLo[i], cutHi[i])
-    return weights_xml, output_cut
 
 # ---------------- Full sequential-bound pipeline ----------------
 def train_cutbased_tmva_sequential_inmem(
     train_signal_path, train_bkg_path, valid_signal_path, valid_bkg_path,
     variables, target_efficiencies, outdir, train_ratio=0.8, weight_col="weight",
-    tmva_cycles=60, tmva_popsize=120, random_seed=12345, tag="Default", n_workers = 1, n_signal = 9e19, n_background=9e19
+    tmva_cycles=60, tmva_popsize=120, random_seed=12345, tag="Default", n_workers = 1, n_signal = 9e19, n_background=9e19, isolation_denominator="unspecified", efficiency_tolerance=0.03,
+    plot_style=None,
 ):
+    configure_style(plot_style)
     ensure_dir(outdir)
     var_list = list(variables.keys())
     directions = {v: variables[v]["direction"] for v in var_list}
@@ -227,13 +202,17 @@ def train_cutbased_tmva_sequential_inmem(
     def load_and_keep(path):
         df = pd.read_parquet(path)
         keep = {v: df[v].values for v in var_list}
-        keep[weight_col] = df[weight_col].values if weight_col in df.columns else np.ones(len(df))
+        keep[weight_col] = df[weight_col].values
         return pd.DataFrame(keep)
 
     sig_tr = load_and_keep(train_signal_path)
     bkg_tr = load_and_keep(train_bkg_path)
-    sig_va = load_and_keep(valid_signal_path)
-    bkg_va = load_and_keep(valid_bkg_path)
+    # Validation retains signed physical weights, independent of training reweighting.
+    sig_va = pd.read_parquet(valid_signal_path)
+    bkg_va = pd.read_parquet(valid_bkg_path)
+    for df in (sig_tr, bkg_tr):
+        if not np.isfinite(df.to_numpy()).all() or (df[weight_col] < 0).any() or df[weight_col].sum() <= 0:
+            raise ValueError("TMVA inputs must be finite with nonnegative training weights")
 
     # Initial bounds
     bounds = {}
@@ -245,8 +224,8 @@ def train_cutbased_tmva_sequential_inmem(
     WPs, roc_points = {}, []
 
     for idx, eff_target in enumerate(sorted(target_efficiencies, reverse=True), start=1):
-        method_name = f"CutsGA_wp{int(eff_target*100)}"
-        weights_xml, window_cuts = tmva_train_one_wp_inmem(
+        method_name = f"CutsGA_{tag}_wp{int(eff_target*100)}"
+        weights_xml, window_cuts, selected_efficiency = tmva_train_one_wp_inmem(
             sig_df=sig_tr, bkg_df=bkg_tr,
             var_list=var_list, bounds=bounds,
             out_dir=outdir, method_name=method_name,
@@ -255,7 +234,8 @@ def train_cutbased_tmva_sequential_inmem(
             weight_col=weight_col, eff_target=eff_target,
             n_workers = n_workers,
             n_signal = n_signal,
-            n_background = n_background
+            n_background = n_background,
+            efficiency_tolerance=efficiency_tolerance
         )
 
 #        wps = parse_tmva_wps(weights_xml)
@@ -272,17 +252,19 @@ def train_cutbased_tmva_sequential_inmem(
         cuts_one_sided = to_one_sided(window_cuts, directions)
         ms = passes(sig_va, var_list, cuts_one_sided, directions)
         mb = passes(bkg_va, var_list, cuts_one_sided, directions)
-        eff_s_val = weighted_efficiency(ms, sig_va[weight_col].values)
-        eff_b_val = weighted_efficiency(mb, bkg_va[weight_col].values)
+        eff_s_val = weighted_efficiency(ms, sig_va["weight"].values)
+        eff_b_val = weighted_efficiency(mb, bkg_va["weight"].values)
         roc_points.append((eff_b_val, eff_s_val, eff_target))
 
         WPs[f"WP{int(eff_target*100)}"] = {
-            "eff_selected_from_tmva": eff_target,
+            "eff_selected_from_tmva": selected_efficiency,
+            "requested_efficiency": eff_target,
             "cuts": {v: None if not np.isfinite(cuts_one_sided[v]) else float(cuts_one_sided[v])
                      for v in var_list},
-            "window_cuts": {v: [float(window_cuts.get(v, (-np.inf, np.inf))[0]),
-                                float(window_cuts.get(v, (-np.inf, np.inf))[1])]
-                            for v in var_list},
+            "window_cuts": {v: ([-1e30, float(cuts_one_sided[v])] if directions[v] == "less"
+                                else [float(cuts_one_sided[v]), 1e30]) for v in var_list},
+            "strict": True,
+            "isolation_denominator": isolation_denominator,
             "eff_val": eff_s_val,
             "rej_val": 1 - eff_b_val,
             "tmva_weights_xml": weights_xml,
@@ -308,11 +290,11 @@ def train_cutbased_tmva_sequential_inmem(
             bins = np.linspace(vmin, vmax, nbins + 1)
         direction = vconf.get("direction", "less")
 
-        plt.figure(figsize=(10, 8))
-        sns.histplot(sig_va, x=v, weights=sig_va[weight_col], label="Signal",
-                     stat="density", bins=bins, kde=False, alpha=0.5, color="C0")
-        sns.histplot(bkg_va, x=v, weights=bkg_va[weight_col], label="Background",
-                     stat="density", bins=bins, kde=False, alpha=0.5, color="C1")
+        fig, ax = plt.subplots()
+        plt.hist(sig_va[v].to_numpy(), weights=sig_va["weight"].to_numpy(), label="Signal",
+                 density=True, bins=bins, alpha=0.5, color="C0")
+        plt.hist(bkg_va[v].to_numpy(), weights=bkg_va["weight"].to_numpy(), label="Background",
+                 density=True, bins=bins, alpha=0.5, color="C1")
         palette = ["#0072B2","#D55E00","#009E73","#CC79A7","#F0E442","#56B4E9","#E69F00","#999999"]
 
         for i,(wp, info) in enumerate(WPs.items()):
@@ -331,23 +313,19 @@ def train_cutbased_tmva_sequential_inmem(
                              xytext=(thr+0.12*(vmax-vmin), y1),
                              arrowprops=dict(arrowstyle="->", lw=1.5, color="k"))
 
-        plt.title(f"{v} with sequential WPs (TMVA CutsGA)")
-        plt.xlabel(v); plt.ylabel("Density"); plt.legend()
-        plt.tight_layout()
-        plt.savefig(os.path.join(outdir, f"{tag}_{v}_WPs.png"))
-        plt.close()
+        ax.set(xlabel=v, ylabel="Density")
+        add_legend(ax, plot_style, title="TMVA CutsGA", ncol=2)
+        save_plot(fig, os.path.join(outdir, f"{tag}_{v}_WPs.png"), plot_style)
 
     roc_points = sorted(roc_points, key=lambda x: x[0])
-    plt.figure(figsize=(8, 8))
-    plt.plot([p[0] for p in roc_points], [p[1] for p in roc_points], "o-", label="TMVA CutsGA (validation)")
+    fig, ax = plt.subplots()
+    plt.plot([p[0] for p in roc_points], [p[1] for p in roc_points], "o", linestyle="none", label="TMVA CutsGA (validation)")
     for fpr,tpr,eff in roc_points:
-        plt.text(fpr, tpr, f"WP{int(eff*100)}", fontsize=8)
+        plt.text(fpr, tpr, f"WP{int(eff*100)}", fontsize="x-small")
     plt.xlabel("Background efficiency (FPR)")
     plt.ylabel("Signal efficiency (TPR)")
-    plt.title("Cut-based ID ROC (Validation) — TMVA sequential bounds")
-    plt.grid(True, ls="--", alpha=0.4); plt.legend()
-    plt.tight_layout()
-    plt.savefig(os.path.join(outdir, f"{tag}_ROC_curve.png")); plt.close()
+    add_legend(ax, plot_style)
+    save_plot(fig, os.path.join(outdir, f"{tag}_ROC_curve.png"), plot_style)
 
     with open(os.path.join(outdir, f"CutBased_WPs_{tag}_TMVA_seq.json"), "w") as f:
         json.dump(WPs, f, indent=2)
@@ -368,6 +346,7 @@ def TrainCutBasedID_TMVAAnalysis(**kwargs):
     n_workers    = kwargs.pop("n_workers", 1)
     n_signal = kwargs.pop("n_signal", 9e19)
     n_background = kwargs.pop("n_background", 9e19)
+    weight_col = kwargs.pop("weight_col", "training_weight")
     for region in regions:
         region_out = os.path.join(outdir, region); 
         ensure_dir(region_out)
@@ -386,9 +365,12 @@ def TrainCutBasedID_TMVAAnalysis(**kwargs):
                 random_seed=random_seed,
                 train_ratio=train_ratio,
                 tag=tag,
+                weight_col=weight_col,
+                isolation_denominator=kwargs.get("isolation_denominator", "unspecified"),
+                efficiency_tolerance=kwargs.get("efficiency_tolerance", 0.03),
+                plot_style=kwargs.get("plot_style"),
                 n_workers=n_workers,
                 n_signal=n_signal,
                 n_background=n_background
             )
     print("[TMVA] All regions finished.")
-

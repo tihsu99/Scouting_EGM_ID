@@ -6,11 +6,12 @@ from typing import Dict, List, Tuple, Optional, Iterable
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import mplhep as hep
 from rich.console import Console
 from rich.table import Table
 import matplotlib.colors as mc
 import colorsys
+from workflow.data import efficiency_stats
+from workflow.plotting import add_legend, configure_style, save_plot, series_panels
 
 def lighten_color(color, amount=0.3):
     """
@@ -37,7 +38,6 @@ def shift_hue(color, shift=0.15):
     return (r2, g2, b2)
 
 
-plt.style.use(hep.style.CMS)
 console = Console()
 
 # -----------------------------
@@ -55,7 +55,6 @@ OKABE_ITO = [
 ]
 
 # Line styles to differentiate WPs and S/B
-WP_LINESTYLES = ["-", "--", "-.", ":"]
 SB_STYLES = {"signal": "-", "background": "--"}
 
 
@@ -113,8 +112,13 @@ class ValidationAnalyzer:
         class_col: str = "is_signal",
         region_col: str = "region",
         weight_col: str = "weight",
+        label: str = "",
+        plot_style: Optional[dict] = None,
     ):
+        self.plot_style = plot_style
+        configure_style(plot_style)
         self.df = df.copy()
+        self.label = label
         self.wp_sources = wp_sources
         self.class_col = class_col
         self.region_col = region_col
@@ -153,6 +157,11 @@ class ValidationAnalyzer:
         return mask
 
     def _pass_wp(self, df_block: pd.DataFrame, wp: WP) -> np.ndarray:
+        if wp.meta.get("strict", False):
+            mask = np.ones(len(df_block), dtype=bool)
+            for var, (lo, hi) in wp.window_cuts.items():
+                mask &= (df_block[var].to_numpy() > lo) & (df_block[var].to_numpy() < hi)
+            return mask
         return self._apply_window_cuts_block(df_block, wp.window_cuts)
 
     @staticmethod
@@ -263,17 +272,8 @@ class ValidationAnalyzer:
     # ---------------------------
     # Plotting helpers
     # ---------------------------
-    @staticmethod
-    def _prep_axes(ax: plt.Axes, grid: bool = True) -> None:
-        if grid:
-            ax.grid(True, alpha=0.3, linestyle=":")
-
-    @staticmethod
-    def _save(fig: plt.Figure, path: str) -> None:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        fig.tight_layout()
-        fig.savefig(path)
-        plt.close(fig)
+    def _save(self, fig: plt.Figure, path: str) -> None:
+        save_plot(fig, path, self.plot_style)
 
     # ---------------------------
     # 1) ROC comparison
@@ -297,9 +297,9 @@ class ValidationAnalyzer:
             w_sig_all = eff_w[is_sig]
             w_bkg_all = eff_w[is_bkg]
 
-            fig, ax = plt.subplots(figsize=(8, 8))
-            # hep.cms.label("Preliminary", ax=ax, loc=0)
+            fig, ax = plt.subplots()
 
+            rows = []
             colors = OKABE_ITO
             for s_i, (source, wps) in enumerate(self.wp_sources.items()):
                 xs, ys = [], []
@@ -308,6 +308,12 @@ class ValidationAnalyzer:
                     pass_mask = self._pass_wp(block, wp)
                     sig_eff = self._efficiency(pass_mask[is_sig], w_sig_all)
                     bkg_eff = self._efficiency(pass_mask[is_bkg], w_bkg_all)
+                    _, sig_err, sig_neff = efficiency_stats(pass_mask[is_sig], w_sig_all)
+                    _, bkg_err, bkg_neff = efficiency_stats(pass_mask[is_bkg], w_bkg_all)
+                    rows.append(dict(source=source, wp=wp.name, signal_efficiency=sig_eff,
+                                     fake_rate=bkg_eff, signal_error=sig_err, fake_error=bkg_err,
+                                     signal_neff=sig_neff, background_neff=bkg_neff,
+                                     signal_rows=int(is_sig.sum()), background_rows=int(is_bkg.sum())))
                     xs.append(bkg_eff)
                     ys.append(sig_eff)
 
@@ -315,38 +321,43 @@ class ValidationAnalyzer:
                     xs,
                     ys,
                     marker="o",
-                    linestyle="-",
+                    linestyle="none",
                     color=colors[s_i % len(colors)],
                     label=source,
                 )
 
-                for (x, y), wp in zip(zip(xs, ys), wps):
+                annotations = {}
+                for point, wp in zip(zip(xs, ys), wps):
+                    annotations.setdefault(point, []).append(wp.name)
+                for (x, y), names in annotations.items():
+                    upper = y > np.mean(ax.get_ylim())
                     ax.annotate(
-                        wp.name,
+                        "\n".join(names),
                         (x, y),
                         textcoords="offset points",
-                        xytext=(5, -5),
-                        fontsize=8,
+                        xytext=(5, -5 if upper else 5),
+                        va="top" if upper else "bottom",
+                        fontsize="x-small",
                     )
 
-            self._prep_axes(ax)
             ax.set_xlabel("Background efficiency")
             ax.set_ylabel("Signal efficiency")
             ax.text(
               0.05, 0.95,
-              f"{reg}",
+              f"{reg}" + (f"\n{self.label}" if self.label else ""),
               transform=ax.transAxes,
-              fontsize=18,
+              fontsize="small",
               fontweight="bold",
               va="top",
               ha="left",
             )
 #            ax.set_xlim(0, 1)
 #            ax.set_ylim(0, 1)
-            ax.legend()
+            add_legend(ax, self.plot_style)
 
             out = os.path.join(outdir, f"roc_region-{reg}.png")
             self._save(fig, out)
+            pd.DataFrame(rows).to_csv(os.path.join(outdir, f"roc_region-{reg}.csv"), index=False)
 
     # ---------------------------
     # 2) Efficiency vs variable
@@ -356,10 +367,12 @@ class ValidationAnalyzer:
         variables: Iterable[str],
         binning: Dict[str, List[float]],
         outdir: str,
+        labels: Optional[Dict[str, str]] = None,
     ) -> None:
         """
         binning: dict[var] -> either [min, max, nbins] or full edges.
         """
+        labels = labels or {}
         regions = sorted(self.df[self.region_col].astype(str).unique())
         variables = list(variables)
 
@@ -393,8 +406,9 @@ class ValidationAnalyzer:
                     b_edges = np.asarray(bins_cfg, dtype=float)
 
                 centers = 0.5 * (b_edges[:-1] + b_edges[1:])
-                fig, ax = plt.subplots(figsize=(10, 8))
-#                hep.cms.label("Preliminary", ax=ax, loc=0)
+                rows = []
+                fig, axes, panel_size = series_panels(2 * sum(len(wps) for wps in self.wp_sources.values()), self.plot_style)
+                series_index = 0
                 colors = OKABE_ITO
 
                 for s_i, (source, wps) in enumerate(self.wp_sources.items()):
@@ -428,17 +442,23 @@ class ValidationAnalyzer:
                             tot, _ = np.histogram(cls_vals, bins=b_edges, weights=cls_w)
                             pas, _ = np.histogram(cls_vals[sel], bins=b_edges, weights=cls_w[sel])
 
-                            with np.errstate(divide="ignore", invalid="ignore"):
-                                eff = np.where(tot > 0, pas / tot, np.nan)
-                                err = np.where(
-                                    tot > 0,
-                                    np.sqrt(eff * (1 - eff) / tot),
-                                    np.nan,
-                                )
+                            eff, err = [], []
+                            for index, (low, high) in enumerate(zip(b_edges[:-1], b_edges[1:])):
+                                inside = (cls_vals >= low) & ((cls_vals < high) if index < len(centers)-1 else (cls_vals <= high))
+                                value, error, neff = efficiency_stats(sel[inside], cls_w[inside])
+                                eff.append(value)
+                                err.append(error)
+                                rows.append(dict(source=source, wp=wp.name, category=cls_name,
+                                                 low=low, high=high, efficiency=value, error=error,
+                                                 effective_entries=neff, rows=int(inside.sum()),
+                                                 sumw=float(cls_w[inside].sum()),
+                                                 sumw2=float(np.square(cls_w[inside]).sum())))
+                            eff, err = np.asarray(eff), np.asarray(err)
 
-                            linestyle = "none" # WP_LINESTYLES[w_i % len(WP_LINESTYLES)]
                             xerr = 0.5 * (b_edges[1:] - b_edges[:-1])
 
+                            ax = axes[series_index // panel_size]
+                            series_index += 1
                             ax.errorbar(
                                 centers,
                                 eff,
@@ -446,20 +466,34 @@ class ValidationAnalyzer:
                                 yerr=err,
                                 fmt="o",
                                 markersize=3,
-                                linestyle=linestyle,
+                                linestyle="none",
                                 color=cls_color,
                                 ecolor=cls_color,
                                 capsize=2,
                                 label=f"{source} {wp.name} {cls_name}",
                             )
 
-                self._prep_axes(ax)
-                ax.set_xlabel(var)
-                ax.set_ylabel("Efficiency")
-                ax.set_ylim(0, 1.1)
-                ax.legend(fontsize=7, ncol=2, frameon=True)
+                for ax in axes:
+                    ax.set_xlabel(labels.get(var, var))
+                    ax.set_ylabel("Efficiency")
+                    ax.set_ylim(0, 1.1)
+                    add_legend(ax, self.plot_style, title=reg, ncol=2)
                 out = os.path.join(outdir, f"eff_{var}_region-{reg}.png")
                 self._save(fig, out)
+                pd.DataFrame(rows).to_csv(os.path.join(outdir, f"eff_region-{reg}_{var}.csv"), index=False)
+                metrics = pd.DataFrame(rows)
+                for category, ylabel in (("signal", "Signal efficiency"), ("background", "Fake rate")):
+                    groups = metrics.loc[metrics.category == category].groupby(["source", "wp"], sort=False)
+                    separate, separate_axes, panel_size = series_panels(len(groups), self.plot_style)
+                    for index, ((source, name), points) in enumerate(groups):
+                        axis = separate_axes[index // panel_size]
+                        axis.errorbar((points.low + points.high) / 2, points.efficiency,
+                                      xerr=(points.high - points.low) / 2, yerr=points.error,
+                                      fmt="o", linestyle="none", markersize=3, label=f"{source} {name}")
+                    for axis in separate_axes:
+                        axis.set(xlabel=labels.get(var, var), ylabel=ylabel)
+                        add_legend(axis, self.plot_style, title=reg, ncol=2)
+                    self._save(separate, os.path.join(outdir, f"{category}_{var}_region-{reg}.png"))
 
     # ---------------------------
     # 3) N−1 plots
@@ -517,12 +551,11 @@ class ValidationAnalyzer:
                         nm1_cuts = {k: v for k, v in wp.window_cuts.items()
                                     if k != var}
                         if nm1_cuts:
-                            nm1_mask = self._apply_window_cuts_block(reg_df, nm1_cuts)
+                            nm1_mask = self._pass_wp(reg_df, WP(wp.name, nm1_cuts, wp.meta))
                         else:
                             nm1_mask = np.ones(len(reg_df), dtype=bool)
 
-                        fig, ax = plt.subplots(figsize=(5.8, 4.6))
-                        hep.cms.label("Preliminary", ax=ax, loc=0)
+                        fig, ax = plt.subplots()
 
                         for cls_name, cls_mask, alpha in (
                             ("signal", is_sig, 0.5),
@@ -552,19 +585,18 @@ class ValidationAnalyzer:
                             lo, hi = wp.window_cuts[var]
                             ax.axvline(lo, color="k", linestyle=":", linewidth=1)
                             ax.axvline(hi, color="k", linestyle=":", linewidth=1)
-                            ax.fill_betweenx(
-                                [0, ax.get_ylim()[1]],
-                                lo,
-                                hi,
+                            ax.axvspan(
+                                np.clip(lo, b_edges[0], b_edges[-1]),
+                                np.clip(hi, b_edges[0], b_edges[-1]),
                                 color="grey",
                                 alpha=0.1,
                             )
 
-                        self._prep_axes(ax)
+                        # Unbounded cut sentinels must not expand the displayed range.
+                        ax.set_xlim(b_edges[0], b_edges[-1])
                         ax.set_xlabel(var)
                         ax.set_ylabel("Density" if density else "Counts")
-                        ax.set_title(f"N−1: {var} — {source} {wp.name} — Region: {reg}")
-                        ax.legend(fontsize=7, frameon=True)
+                        add_legend(ax, self.plot_style, title=f"{reg}, N−1")
                         out = os.path.join(
                             outdir,
                             f"nminus1_{var}_region-{reg}_{source}_{wp.name}.png",
@@ -608,6 +640,8 @@ def ValidateIDAnalysis(**kwargs):
     monitor_eff = kwargs.pop("monitor_eff")
     variables = kwargs.pop("variables")
     reweight_by = False
+    pt_regions = kwargs.pop("pt_regions", {})
+    requirement = kwargs.pop("requirement", None)
 
 
     outdir = kwargs.pop("outputdir", os.path.join(inputdir, "validation_plots"))
@@ -629,8 +663,7 @@ def ValidateIDAnalysis(**kwargs):
         sig_path = os.path.join(region_dir, "valid", "signal.parquet")
         bkg_path = os.path.join(region_dir, "valid", "background.parquet")
         if not os.path.exists(sig_path) or not os.path.exists(bkg_path):
-            console.print(f"[red]Missing parquet files in {region_dir}[/red]")
-            continue
+            raise FileNotFoundError(f"Missing validation parquet files in {region_dir}")
 
         df_sig = pd.read_parquet(sig_path)
         df_bkg = pd.read_parquet(bkg_path)
@@ -646,6 +679,10 @@ def ValidateIDAnalysis(**kwargs):
             df_bkg["weight"] = 1.0
 
         df = pd.concat([df_sig, df_bkg], ignore_index=True)
+        if requirement:
+            df = df.query(requirement).copy()
+        if df.empty:
+            raise ValueError(f"No validation candidates for {region}")
 
         # --- Resolve WP JSON paths for this region ---
         if wp_sources_cfg is not None:
@@ -678,6 +715,7 @@ def ValidateIDAnalysis(**kwargs):
             class_col="is_signal",
             region_col="region",
             weight_col="weight",
+            plot_style=kwargs.get("plot_style"),
         )
 
         if reweight_by:
@@ -694,6 +732,13 @@ def ValidateIDAnalysis(**kwargs):
 
         # 1) ROC
         va.plot_roc_by_region(outdir=reg_out)
+        for label, (low, high) in pt_regions.items():
+            subset = df.loc[(df.pt >= low) & (df.pt < high)].copy()
+            if subset.empty:
+                raise ValueError(f"No validation entries in {region}/{label}")
+            ValidationAnalyzer(subset, wp_sources, label=rf"{low} ≤ $p_T$ < {high} GeV",
+                               plot_style=kwargs.get("plot_style")).plot_roc_by_region(
+                outdir=os.path.join(reg_out, label))
 
         # 2) Efficiency vs variables (monitor_eff)
         eff_binning = {v: cfg["binning"] for v, cfg in monitor_eff.items()}
@@ -701,6 +746,7 @@ def ValidateIDAnalysis(**kwargs):
             variables=monitor_eff.keys(),
             binning=eff_binning,
             outdir=os.path.join(reg_out, "eff_vs_var"),
+            labels={v: cfg.get("label", v) for v, cfg in monitor_eff.items()},
         )
 
         # 3) N−1 plots (variables)
@@ -719,4 +765,3 @@ def ValidateIDAnalysis(**kwargs):
     console.rule("[bold green]Validation Completed[/bold green]")
 
     return {"outputdir": outdir}
-

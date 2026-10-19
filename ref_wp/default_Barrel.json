@@ -1,0 +1,31 @@
+{
+  "ScoutingElectronRecommendv1": {
+    "strict": true,
+    "isolation_denominator": "E = pt*cosh(eta), pt > 10 GeV",
+    "source": "EgammaAnalysis/TnPTreeProducer/plugins/ScoutingElectronRefSelector.cc",
+    "source_sha256": "896c5791c0cace663d1b17921d2c4658ef0f62e63241689b4ef3d2ba5148c1b6",
+    "cuts": {
+      "sigmaIetaIeta": 0.015,
+      "hOverE": 0.2,
+      "abs_dEtaIn": 0.008,
+      "abs_dPhiIn": 0.06,
+      "relecalIso": 0.25,
+      "reltrackIso": 0.001
+    }
+  },
+  "ScoutingElectronCustomizev1": {
+    "strict": true,
+    "isolation_denominator": "E = pt*cosh(eta), pt > 10 GeV",
+    "source": "EgammaAnalysis/TnPTreeProducer/plugins/ScoutingElectronRefSelector.cc",
+    "source_sha256": "896c5791c0cace663d1b17921d2c4658ef0f62e63241689b4ef3d2ba5148c1b6",
+    "cuts": {
+      "sigmaIetaIeta": 0.015,
+      "hOverE": 0.2,
+      "abs_dEtaIn": 0.008,
+      "abs_dPhiIn": 0.06,
+      "relecalIso": 0.25,
+      "reltrackIso": 0.001,
+      "relhcalIso": 0.4
+    }
+  }
+}

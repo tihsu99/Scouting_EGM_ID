@@ -2,6 +2,7 @@ import os, json
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from workflow.plotting import add_legend, configure_style, save_plot
 import seaborn as sns
 from functools import partial
 from deap import base, creator, tools, algorithms
@@ -141,7 +142,8 @@ def train_cutbased_ga(train_signal_path, train_bkg_path,
                       valid_signal_path, valid_bkg_path,
                       variables, target_efficiencies,
                       outdir,
-                      weight_col="weight", n_trials=5):
+                      weight_col="weight", n_trials=5, plot_style=None):
+    configure_style(plot_style)
     os.makedirs(outdir, exist_ok=True)
     console.print(f"[cyan]Training Cut-based GA (Optuna-tuned) for {outdir}[/cyan]")
 
@@ -220,7 +222,7 @@ def train_cutbased_ga(train_signal_path, train_bkg_path,
                  bins = np.linspace(vmin, vmax, nbins + 1)
              direction = vconf.get("direction", "less")
 
-             plt.figure(figsize=(6, 4))
+             fig, ax = plt.subplots()
 
              sns.histplot(
                  data=sig_va, x=v, weights=sig_va[weight_col],
@@ -263,28 +265,21 @@ def train_cutbased_ga(train_signal_path, train_bkg_path,
                          xytext=(cut_val + 0.12 * (vmax - vmin), arrow_y),
                          arrowprops=dict(arrowstyle="->", lw=1.5, color="k"))
 
-             plt.title(f"{v} distribution with WPs")
              plt.xlabel(v)
              plt.ylabel("Density")
-             plt.legend()
-             plt.tight_layout()
-             plt.savefig(os.path.join(outdir, f"{v}_WPs.png"), dpi=150)
-             plt.close()
+             add_legend(ax, plot_style, ncol=2)
+             save_plot(fig, os.path.join(outdir, f"{v}_WPs.png"), plot_style)
 
     # ROC
     roc_points = sorted(roc_points, key=lambda x: x[0])
-    plt.figure(figsize=(6, 5))
-    plt.plot([p[0] for p in roc_points], [p[1] for p in roc_points], "o-", label="GA Cutbased (Optuna-tuned)")
+    fig, ax = plt.subplots()
+    plt.plot([p[0] for p in roc_points], [p[1] for p in roc_points], "o", linestyle="none", label="GA Cutbased (Optuna-tuned)")
     for fpr, tpr, eff in roc_points:
-        plt.text(fpr, tpr, f"WP{int(eff*100)}", fontsize=8)
+        plt.text(fpr, tpr, f"WP{int(eff*100)}", fontsize="x-small")
     plt.xlabel("Background efficiency (FPR)")
     plt.ylabel("Signal efficiency (TPR)")
-    plt.title("Cut-based ID ROC (Validation)")
-    plt.grid(True, ls="--", alpha=0.4)
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(os.path.join(outdir, "ROC_curve.png"), dpi=150)
-    plt.close()
+    add_legend(ax, plot_style)
+    save_plot(fig, os.path.join(outdir, "ROC_curve.png"), plot_style)
 
     # Summary Table
     table = Table(title=f"Cut-Based ID Summary")
@@ -316,6 +311,7 @@ def TrainCutBasedIDAnalysis(**kwargs):
             variables=variables,
             target_efficiencies=[0.90, 0.80, 0.70],
             outdir=os.path.join(outdir, region),
-            n_trials=2  # Number of Optuna trials
+            n_trials=2,  # Number of Optuna trials
+            plot_style=kwargs.get("plot_style"),
         )
 

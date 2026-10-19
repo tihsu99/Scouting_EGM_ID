@@ -48,7 +48,8 @@ if job["is_mc"]:
     process.load("SimGeneral.HepPDTESSource.pythiapdt_cfi")
     process.load("PhysicsTools.NanoAOD.genparticles_cff")
     process.load("PhysicsTools.NanoAOD.globals_cff")
-    process.nanoTask.add(process.genParticleTask, process.genParticleTablesTask, process.puTable)
+    process.nanoTask.add(process.genParticleTask, process.genParticleTablesTask,
+                         process.puTable, process.genTable)
 process.nanoPath = cms.Path(process.nanoTask)
 process.output = cms.OutputModule(
     "NanoAODOutputModule",

@@ -1,0 +1,150 @@
+# Set effective cross sections (after matching/filtering) for the exact datasets.
+# Null values deliberately stop processing; do not substitute arbitrary unit weights.
+# QCD coverage begins at generator pT = 30 GeV, not electron pT = 30 GeV.
+base_config: standard.yaml
+default_wp: ../ref_wp/default_{region}.json
+signal_requirement: ((status == 1) | (status == 2)) & (pt >= 10)
+background_requirement: ((status == 0) | (status == 3)) & (pt >= 10)
+training_weight_mode: absolute
+calibration_samples:
+- DYToLL_M50
+normalization:
+  weight_column: Generator.weight
+  luminosity_pb: 1.0
+  groups:
+    DY:
+      samples:
+      - DYToLL_M50
+      cross_section_pb: null
+    TT:
+      samples:
+      - TT
+      - TT_ext1
+      cross_section_pb: null
+    Zprime:
+      samples:
+      - ZprimeTo2E_M6000
+      cross_section_pb: null
+    QCD_Pt_30to50:
+      samples:
+      - QCD_Pt_30to50
+      cross_section_pb: null
+      stitch_family: QCD
+      generator_range:
+      - 30
+      - 50
+    QCD_Pt_50to80:
+      samples:
+      - QCD_Pt_50to80
+      cross_section_pb: null
+      stitch_family: QCD
+      generator_range:
+      - 50
+      - 80
+    QCD_Pt_80to120:
+      samples:
+      - QCD_Pt_80to120
+      cross_section_pb: null
+      stitch_family: QCD
+      generator_range:
+      - 80
+      - 120
+    QCD_Pt_120to170:
+      samples:
+      - QCD_Pt_120to170
+      cross_section_pb: null
+      stitch_family: QCD
+      generator_range:
+      - 120
+      - 170
+    QCD_Pt_170to300:
+      samples:
+      - QCD_Pt_170to300
+      cross_section_pb: null
+      stitch_family: QCD
+      generator_range:
+      - 170
+      - 300
+    QCD_Pt_300to470:
+      samples:
+      - QCD_Pt_300to470
+      cross_section_pb: null
+      stitch_family: QCD
+      generator_range:
+      - 300
+      - 470
+    QCD_Pt_470to600:
+      samples:
+      - QCD_Pt_470to600
+      cross_section_pb: null
+      stitch_family: QCD
+      generator_range:
+      - 470
+      - 600
+    QCD_Pt_600to800:
+      samples:
+      - QCD_Pt_600to800
+      cross_section_pb: null
+      stitch_family: QCD
+      generator_range:
+      - 600
+      - 800
+    QCD_Pt_800to1000:
+      samples:
+      - QCD_Pt_800to1000
+      cross_section_pb: null
+      stitch_family: QCD
+      generator_range:
+      - 800
+      - 1000
+    QCD_Pt_1000:
+      samples:
+      - QCD_Pt_1000
+      cross_section_pb: null
+      stitch_family: QCD
+      generator_range:
+      - 1000
+      - null
+studies:
+  dy_tt:
+    signal:
+    - DYToLL_M50
+    background:
+    - TT
+    - TT_ext1
+  dy_qcd:
+    signal:
+    - DYToLL_M50
+    background:
+    - QCD_Pt_30to50
+    - QCD_Pt_50to80
+    - QCD_Pt_80to120
+    - QCD_Pt_120to170
+    - QCD_Pt_170to300
+    - QCD_Pt_300to470
+    - QCD_Pt_470to600
+    - QCD_Pt_600to800
+    - QCD_Pt_800to1000
+    - QCD_Pt_1000
+high_pt:
+  label: "$p_T$ [GeV]"
+  signal:
+  - ZprimeTo2E_M6000
+  range:
+  - 200
+  - 1000
+  binning:
+  - 200
+  - 300
+  - 400
+  - 500
+  - 600
+  - 700
+  - 800
+  - 900
+  - 1000
+shared:
+  n_files: -1
+  random_seed: 42
+  train_ratio: 0.8
+workflow_overrides: {}

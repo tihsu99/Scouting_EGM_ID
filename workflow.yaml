@@ -18,10 +18,16 @@ gen_matching_dR: 0.1
 proxy_file: /afs/cern.ch/user/t/tihsu/tmp/x509up
 
 ntupler_store_values_for_event:
+  Generator:
+    - weight
+    - binvar
   Pileup:
     - nPU
   ScoutingRho:
     - fixedGridRhoFastjetAll
+
+# Scalar event columns retain event-level train/validation grouping.
+ntupler_store_event_scalars: [run, luminosityBlock, event]
 
 ntupler_store_values_for_electron:
   - rechitZeroSuppression
@@ -102,4 +108,3 @@ ntupler_store_values_for_electron:
   - showerEdep9
   # 0 unmatched, 1 prompt, 2 direct tau decay, 3 other matched/nonprompt.
   - status
-

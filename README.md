@@ -178,7 +178,9 @@ BASH
 
 Proceed only after `LOCAL TEST PASSED` and a zero exit status from the block.
 The test checks the ROOT `Events` tree and required branches, then runs the ID
-converter and checks nonempty Parquet output, required columns, and readability.
+converter and checks the Parquet schema, required columns, and readability.
+Check that the smoke run contains electron rows before assessing ID distributions.
+Empty electron tables are retained in production to preserve event normalization.
 
 | Local file | What to inspect |
 | --- | --- |
@@ -240,26 +242,134 @@ electrons as background, within the configured sample lists. Regenerate old
 Parquet outputs with the corrected converter before training; see
 [truth labels and validation](ntuplizer/README.md#electron-truth-labels).
 
-## 4. Step2: Luigi workflow
+## 4. Post-ntuple ID studies
 
-Relative ECAL, HCAL, and track isolation use electron `pt` as the denominator:
-`iso/pt`, `(iso-rho*EA)/pt`, and `(iso-rho*EA-scale)/pt`. The isolation scale
-fits also use `1/pt`. `Esc = pt*cosh(eta)` is retained for the separate H/E
-correction. The isolation numerator branches stored by the ntuplizer are unchanged.
+Use `postprocess.py` for the complete campaign: DY versus TT, DY versus stitched
+QCD, and independent Zprime validation. It calls the existing correction,
+preparation, TMVA, and validation modules. Customize sample lists, cross sections,
+kinematic binning, pT regions, and stage options in
+[`config/postprocess.yaml`](config/postprocess.yaml) and its base
+[`config/standard.yaml`](config/standard.yaml).
 
-After changing this definition, rerun `DeriveEffectiveArea` and
-`InspectDistribution` before training (set their `skip` fields to `False`).
-Regenerate the correction JSON, prepared training tables, and trained working
-points in a new analysis output directory; old energy-normalized isolation
-artifacts are not compatible. Raw isolation columns do not need regeneration
-for this denominator change, but old truth labels still require the corrected
-converter described above.
+Plots use [mplhep's CMS style](https://mplhep.readthedocs.io/en/latest/guide_styling/)
+for ROOT-like fonts, inward ticks on all four sides, and CMS labels. Install it
+in the analysis Python environment with `python3 -m pip install mplhep` if absent.
+The shared `plot_style` block in `config/standard.yaml` controls Matplotlib
+`rc_params`, `legend` options, and the arguments to `hep.cms.label`. The supplied MC campaign uses
+**CMS Preliminary** and **13.6 TeV**; the status text is used literally without
+automatically adding "Simulation". Change `cms_label.com` for a
+different collision energy, or set it to `null` to omit the energy. These settings
+apply to correction fits, distributions, QCD stitching, both trainers, ROC curves,
+efficiency/fake-rate plots, and N-minus-one plots, including worker processes.
+Use `shared.plot_style` in `config/postprocess.yaml` to replace the style block
+for a study run. Styling does not change selections, weights, or metric tables.
+ROC and efficiency/fake-rate measurements use markers without connecting lines;
+efficiency plots retain their error bars. Legends are placed in the lower-right corner inside the axes,
+following the efficiency-plot layout in
+[CMS-DP-2026/048](https://twiki.cern.ch/twiki/bin/view/CMSPublic/DP2026048#Data_scouting_Trigger_Efficiency).
+`plot_style.max_series_per_panel` limits the number of efficiency/fake-rate
+series per panel (default: 8). Larger scans use multiple panels in the same
+output figure, retaining every working point and the full metric tables.
 
-Run analysis pipeline:
+**Produce new ntuples before running this workflow.** The production now saves
+`Generator.weight`, `Generator.binvar`, and event identifiers. Each Parquet receipt
+also records the generator-weight sum over every processed event, including events
+without electron candidates. Old Parquet alone cannot recover this information.
+Keep the `.parquet.json` receipts beside the Parquet files when copying from EOS.
+
+Set every selected group's `normalization.groups.<group>.cross_section_pb` to the
+verified effective cross section for that exact dataset (after matching/filtering).
+The template leaves these values null and fails rather than guessing them. Obtain
+values from campaign metadata or run CMS
+[GenXSecAnalyzer](https://opendata.web.cern.ch/docs/cms-guide-xsec) on the corresponding
+MiniAOD. Do not apply a filter efficiency again to an already filtered cross section.
+The `TT` group shares one cross section and the combined `TT` + `TT_ext1` denominator.
+
+Run from this checkout in your validated Coffea/PyROOT environment. Replace the
+input/output paths with your mounted EOS paths; use a new output directory after
+changing the configuration. The manifest must describe the same production.
+
+```bash
+source env.sh
+export MPLBACKEND=Agg
+python3 postprocess.py config/postprocess.yaml \
+    --inputdir /eos/user/t/tihsu/dataset/scouting_id/id_parquet_v1 \
+    --outputdir /eos/user/t/tihsu/database/EGM_Scouting_ID_analysis/energy_v1 \
+    --manifest farms/id_parquet_v1/manifest.json --check-only
+```
+
+Continue only after a successful check. Run the same command without `--check-only`
+to execute all stages. `--studies dy_tt` or `--studies dy_qcd` selects one training
+study. `--steps calibrate prepare train validate highpt` is the default; select a
+subset to resume, using the same configuration and output directory. `highpt`
+requires prepared held-out background tables and trained WPs from the earlier steps.
+The resolved YAML is saved, and a changed configuration cannot reuse that directory.
+
+The workflow implements:
+
+- **QCD normalization:** event weight = effective cross section times luminosity
+  times generator weight divided by the processed, preselection generator-weight
+  sum. Each generator bin contributes according to its cross section; electron pT
+  spectra are never rescaled to force adjacent points to agree. It checks receipt
+  provenance, duplicate inputs, generator bin ranges, and bin gaps/overlaps.
+  `background_stitching.pdf/json` shows per-sample and total electron pT spectra.
+  The supplied QCD set starts at generator pT = 30 GeV: completeness for 10-20 GeV
+  electron candidates still requires a physics check or lower generator bins.
+- **Corrections:** derive rho effective areas and residual energy scaling in eta
+  bins from the DY training partition. Relative isolation uses
+  `E = pt*cosh(eta)`, `I/E`, `(I-rho*EA)/E`, and `(I-rho*EA-scale)/E`;
+  the scale fit uses `1/E`. Raw isolation numerators are unchanged and no zero
+  clipping is introduced. Fit plots and coefficient/error summaries are retained.
+- **Training:** fit the configurable signal-to-background `(pt, eta)` reweighting
+  on training events only. `reweighting.json` stores before/after histograms and
+  unsupported phase space. Unsupported cells receive zero training weight, never
+  an extrapolated edge-bin factor. `training_weight_mode: absolute` explicitly
+  uses absolute physical weights for calibration/training with signed MC;
+  signed physical weights remain in validation. This is a training convention,
+  not a replacement for signed cross-section normalization.
+- **Validation:** keep all candidates from one event in the same partition. Both
+  IDs are evaluated at 10-20, 20-200, and 200-1000 GeV, separately in Barrel and
+  Endcap. ROC plots show the configured cut-based WP scan as points; increase
+  `target_efficiencies` for a denser scan. JSON records requested and selected TMVA
+  efficiency bins; an unpopulated bin outside `efficiency_tolerance` stops training.
+- **High-pT validation:** Zprime supplies independent signal candidates; each
+  study reuses only its held-out TT/QCD background. Separate efficiency and
+  background misidentification plots cover 200-1000 GeV. The denominator is
+  reconstructed signal/background electron candidates passing the configured
+  baseline, not all generated electrons or all jets.
+- **Default WPs:** the checked-in `ref_wp/default_{region}.json` records
+  `ScoutingElectronRecommendv1` and `ScoutingElectronCustomizev1`, traced to the
+  existing `EgammaAnalysis/TnPTreeProducer/plugins/ScoutingElectronRefSelector.cc`
+  with its source hash. Raw E-normalized isolation and strict thresholds are
+  reevaluated alongside newly optimized IDs. The EB/EE boundary is 1.479.
+
+Output layout under the selected output directory:
+
+| Path | Content |
+| --- | --- |
+| `EffectiveArea/` | Fit plots, fit summaries, correctionlib JSON |
+| `dy_tt/`, `dy_qcd/` | Independent study outputs |
+| `<study>/data/` | Physical weights, training weights, event-separated tables, normalization audit |
+| `<study>/distributions/` | Reweighting audit and stitched background spectra |
+| `<study>/train_results/<region>/` | Optimized WP JSON, ROOT files, XML weights |
+| `<study>/performance/<region>/` | Inclusive and pT-sliced ROC PNG/CSV, efficiency/fake-rate PNG/CSV |
+| `<study>/highpt/` | Zprime validation with the same trained/default IDs |
+
+CSV tables include candidate counts, sum of weights, squared weights, and effective
+entries where applicable. Ratio errors include the numerator/denominator covariance
+for weighted subsets; zero or negative total weight gives an undefined result.
+These are per-candidate statistical errors, not a treatment of all correlations
+between candidates in the same event. Sparse bins and signed-weight fluctuations
+must be inspected before using the result as a physics measurement.
+
+A single-study Luigi entry point is retained for custom configurations:
 
 ```bash
 python3 analysis.py --config-path config/standard.yaml --local-scheduler
 ```
+
+Its standalone config must supply normalization groups if physical sample mixing
+is needed; the complete study driver supplies them from `postprocess.yaml`.
 
 How it is dispatched in your code (`analysis.py`):
 - For each entry under `workflow:`, Luigi imports `workflow/<ModuleName>.py`.
@@ -286,7 +396,8 @@ process:
   background:
     requirement: "((status == 0) | (status == 3)) & (pt > 10)"
     samples:
-      TTTo2L2Nu: 1.0
+      TT: 1.0
+      TT_ext1: 1.0
 
 region_definition:
   Barrel:
@@ -349,3 +460,16 @@ Replace all placeholder paths with your own directories (do not keep `tihsu` pat
 - `workflow/InspectDistribution.py` (`InspectDistributionAnalysis`): produce and inspect train/valid datasets.
 - `workflow/TrainCutBasedID_TMVA.py` (`TrainCutBasedID_TMVAAnalysis`): optimize cut-based WP with TMVA.
 - `workflow/ValidateID.py` (`ValidateIDAnalysis`): evaluate WP efficiency/performance plots.
+
+## 6. Local checks
+
+Run in a Python environment with the analysis dependencies:
+
+```bash
+MPLBACKEND=Agg python3 -m unittest discover -s tests -v
+MPLBACKEND=Agg python3 tests/smoke_postprocess.py /tmp/scouting-id-synthetic-check
+```
+
+The second command requires ROOT/TMVA and a new output directory. It runs synthetic
+calibration, both training studies, pT-sliced validation, and Zprime validation.
+Synthetic cross sections and outputs are software checks, not production WPs.

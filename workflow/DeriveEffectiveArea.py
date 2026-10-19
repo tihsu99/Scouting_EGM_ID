@@ -4,12 +4,13 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
-from concurrent.futures import ProcessPoolExecutor, as_completed
-import mplhep as hep
+from concurrent.futures import ProcessPoolExecutor
+from itertools import repeat
 from correctionlib.schemav2 import Correction, CorrectionSet
 import correctionlib.schemav2 as cs
 import rich
-plt.style.use(hep.style.CMS)
+from workflow.data import edges, event_split, load_samples, training_weights
+from workflow.plotting import add_legend, configure_style, save_plot
 
 # === Dynamic function creation ===
 def parse_fitted_function(fitted_func_str):
@@ -36,14 +37,15 @@ def linear_func(x, A, b):
     return A * x + b
 
 # === Parallel fit and plot ===
-def fit_and_plot(args):
+def fit_and_plot(args, plot_style=None):
     (eta_min, eta_max, x_sel, y_sel, x_expr, y_expr,
      plotdir, fitted_func_str, var_name, y_type, x_bins,
-     x_title, y_title, title) = args
+     x_title, y_title, title, weights, coefficient) = args
+    configure_style(plot_style)
 
     if len(x_sel) == 0:
         print(f"⚠️ No entries in η ∈ [{eta_min}, {eta_max})")
-        return None
+        raise ValueError(f"No calibration entries in eta [{eta_min}, {eta_max})")
 
     # --- Prepare data depending on type ---
     if y_type.lower() == "none":
@@ -57,12 +59,15 @@ def fit_and_plot(args):
         y_fit_data = np.zeros_like(centers)
         for i in range(len(bins)-1):
             mask = (x_sel >= bins[i]) & (x_sel < bins[i+1])
-            if np.any(mask):
+            if np.any(mask) and weights[mask].sum() > 0:
                 if y_type.lower() == "mean":
-                    y_fit_data[i] = np.mean(y_sel[mask])
+                    y_fit_data[i] = np.average(y_sel[mask], weights=weights[mask])
                 elif "contour" in y_type.lower():
                     quantile_level = int(y_type.lower().replace("contour", ""))/100
-                    y_fit_data[i] = np.quantile(y_sel[mask], quantile_level)  # median, can add ± quantiles for error
+                    order = np.argsort(y_sel[mask])
+                    values, w = y_sel[mask][order], weights[mask][order]
+                    positions = (np.cumsum(w) - 0.5 * w) / w.sum()
+                    y_fit_data[i] = np.interp(quantile_level, positions, values)
                 else:
                     raise ValueError(f"Unknown plot type: {y_type}")
             else:
@@ -74,22 +79,15 @@ def fit_and_plot(args):
 
     # --- Fit function ---
     func, params, expr = parse_fitted_function(fitted_func_str)
-    p0 = np.ones(len(params))
-    popt, pcov = curve_fit(func, x_fit_data, y_fit_data, p0=p0, maxfev=20000)
+    if coefficient not in params or len(x_fit_data) <= len(params):
+        raise ValueError(f"{var_name}, eta [{eta_min}, {eta_max}): insufficient fit bins or unknown coefficient")
+    popt, pcov = curve_fit(func, x_fit_data, y_fit_data, p0=np.ones(len(params)), maxfev=20000)
     perr = np.sqrt(np.diag(pcov))
-    # x_fit_data and y_fit_data are your prepared arrays
-    p0 = [1.0, 0.0]  # initial guesses for A and b
-    popt, pcov = curve_fit(linear_func, x_fit_data, y_fit_data, p0=p0)
-    perr = np.sqrt(np.diag(pcov))
-
-    A, b = popt
-    A_err, b_err = perr
-
-
+    if not np.isfinite(popt).all() or not np.isfinite(perr).all():
+        raise ValueError(f"Invalid fit for {var_name} in eta [{eta_min}, {eta_max})")
 
     # --- Plot ---
-    fig, ax = plt.subplots(figsize=(10, 8))
-    hep.cms.label("Preliminary", ax=ax, loc=0)
+    fig, ax = plt.subplots()
     if y_type.lower() == "none":
         ax.scatter(x_sel, y_sel, s=5, alpha=0.4, label="Data")
     elif y_type.lower() == "mean":
@@ -106,23 +104,23 @@ def fit_and_plot(args):
 
     ax.set_xlabel(x_title)
     ax.set_ylabel(y_title)
-    ax.legend()
+    add_legend(ax, plot_style)
 
     # Annotate fit
-    txt = [f"range: {eta_min} < $|\eta|$ < {eta_max}", f"Fit: y = {expr}"]
+    txt = [rf"range: {eta_min} < $|\eta|$ < {eta_max}", f"Fit: y = {expr}"]
     for n, v, e in zip(params, popt, perr):
         txt.append(f"{n} = {v:.4g} ± {e:.4g}")
-    ax.text(0.75, 0.25, "\n".join(txt), transform=ax.transAxes,
-            va="top", ha="left", fontsize=9,
-            bbox=dict(boxstyle="round", facecolor="white", alpha=0.7))
+    ax.text(0.95, 0.05, "\n".join(txt), transform=ax.transAxes,
+            va="bottom", ha="right", fontsize="small",
+            bbox=dict(facecolor="white", edgecolor="none", alpha=0.7))
 
     os.makedirs(os.path.join(plotdir, f"{var_name}"), exist_ok=True)
     outfile = os.path.join(plotdir, f"{var_name}", f"EffArea_eta_{eta_min}_{eta_max}.png")
-    fig.tight_layout()
-    fig.savefig(outfile)
-    plt.close(fig)
+    save_plot(fig, outfile, plot_style)
     print(f"✅ Saved plot: {outfile}")
-    return {"value": A}
+    return {"value": float(popt[params.index(coefficient)]), "eta_min": eta_min, "eta_max": eta_max,
+            "parameters": dict(zip(params, popt.tolist())), "errors": dict(zip(params, perr.tolist())),
+            "fit_bins": len(x_fit_data), "entries": len(x_sel)}
 
 
 # === Parallel parquet loading ===
@@ -149,30 +147,14 @@ def DeriveEffectiveAreaAnalysis(**kwargs):
     os.makedirs(plotdir, exist_ok=True)
     print(f"✅ [DeriveEffectiveArea] Plot dir: {plotdir}")
 
-    # --- Build file list ---
-    fileset = []
-    for category, cat_info in process.items():
-        samples = cat_info["samples"]
-        for sample_name, _ in samples.items():
-            sample_path = os.path.join(inputdir, sample_name)
-            files = [
-                os.path.join(sample_path, f)
-                for f in os.listdir(sample_path)
-                if f.endswith(".parquet")
-            ]
-            if n_files > 0:
-                files = files[:min(n_files, len(files))]
-            fileset.extend(files)
-
-    print(f"📦 Found {len(fileset)} parquet files")
-
-    # --- Load data in parallel ---
-    with ProcessPoolExecutor(max_workers=n_workers) as ex:
-        dfs = list(ex.map(load_parquet_file, fileset))
-
-    df_all = pd.concat(dfs, ignore_index=True)
-    df_all =  df_all.query(requirement)
-    print(f"✅ Loaded {len(df_all):,} rows")
+    frames, _ = load_samples(inputdir, process, n_files, kwargs.get("normalization"))
+    df_all = pd.concat(frames.values(), ignore_index=True)
+    if requirement:
+        df_all = df_all.query(requirement).copy()
+    if kwargs.get("calibration_train_only", False):
+        df_all, _ = event_split(df_all, kwargs.get("train_ratio", 0.8), kwargs.get("random_seed", 42))
+    df_all["calibration_weight"] = training_weights(df_all, kwargs.get("calibration_weight_mode", "nonnegative"))
+    print(f"Loaded {len(df_all):,} calibration rows")
 
     # --- Config extraction ---
     corrections = []
@@ -187,10 +169,9 @@ def DeriveEffectiveAreaAnalysis(**kwargs):
         x_title = inspect_dict["x_title"]
         y_title = inspect_dict["y_title"]
         title = inspect_dict["title"]
-        df_all[var_name] = 0
+        df_all[var_name] = 0.0
 
-        if len(x_bins) == 3:
-            x_bins = np.linspace(x_bins[0], x_bins[1], x_bins[2]+1)
+        x_bins = edges(x_bins)
 
         print(f"📊 Fitting {y_expr} vs {x_expr}")
         print(f"η bins: {eta_bins}")
@@ -209,20 +190,13 @@ def DeriveEffectiveAreaAnalysis(**kwargs):
             mask = (abs(df_all["eta"]) >= eta_min) & (abs(df_all["eta"]) < eta_max)
             x_sel = df_all.loc[mask, f"{var_name}_xval"].to_numpy()
             y_sel = df_all.loc[mask, f"{var_name}_yval"].to_numpy()
-            tasks.append((eta_min, eta_max, x_sel, y_sel, x_expr, y_expr, plotdir, fitted_func_str, var_name, y_type, x_bins, x_title, y_title, title))
+            tasks.append((eta_min, eta_max, x_sel, y_sel, x_expr, y_expr, plotdir, fitted_func_str, var_name, y_type, x_bins, x_title, y_title, title,
+                          df_all.loc[mask, "calibration_weight"].to_numpy(), inspect_dict.get("coefficient", "A1")))
 
         # --- Run parallel fits ---
-        results = []
         with ProcessPoolExecutor(max_workers=min(n_workers, len(tasks))) as ex:
-            futures = [ex.submit(fit_and_plot, t) for t in tasks]
-            for fut, task in zip(as_completed(futures), tasks):
-                res = fut.result()
-                eta_min, eta_max = task[0], task[1]
-                if res:
-                    # Optionally attach eta info to the result dict
-                    res["eta_min"] = eta_min
-                    res["eta_max"] = eta_max
-                    results.append(res)
+            # map preserves eta-bin order even when worker completion order differs.
+            results = list(ex.map(fit_and_plot, tasks, repeat(kwargs.get("plot_style"))))
 
         # --- Fill df_all with fit results ---
         for res in results:
