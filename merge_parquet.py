@@ -7,6 +7,7 @@ import math
 from pathlib import Path
 import tempfile
 
+import pyarrow as pa
 import pyarrow.parquet as pq
 import yaml
 
@@ -87,7 +88,7 @@ def merge_sample(sample, jobs, inputdir, target, destination, skip_failed, batch
                     raise ValueError(f"Incompatible Parquet schema: {path}")
                 rows = 0
                 for batch in parquet.iter_batches(batch_size=batch_size):
-                    writer.write_batch(batch)
+                    writer.write_table(pa.Table.from_batches([batch], schema=schema))
                     rows += batch.num_rows
                 if rows != receipt["rows"]:
                     raise ValueError(f"Incomplete Parquet read: {path}")
