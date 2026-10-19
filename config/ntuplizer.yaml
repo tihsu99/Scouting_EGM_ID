@@ -59,16 +59,10 @@ samples:
     # file_list: ../inputs/DYToLL_M50.txt
 
   # User-supplied Winter25 DAS names; validate each sample with a local smoke test.
-  # TT and TT_ext1 are one physics process; retain separate output provenance.
+  # Use inclusive TT only; the extension is excluded from this campaign.
   TT:
     enabled: true
     das: "/TT_TuneCP5_13p6TeV_powheg-pythia8/Run3Winter25MiniAOD-142X_mcRun3_2025_realistic_v7-v2/MINIAODSIM"
-    is_mc: true
-    das_instance: prod/global
-
-  TT_ext1:
-    enabled: true
-    das: "/TT_TuneCP5_13p6TeV_powheg-pythia8/Run3Winter25MiniAOD-142X_mcRun3_2025_realistic_v7_ext1-v2/MINIAODSIM"
     is_mc: true
     das_instance: prod/global
 
@@ -78,64 +72,150 @@ samples:
     is_mc: true
     das_instance: prod/global
 
-  # Unfiltered pT bins only; Pt-1000 supplies the tail above the bounded bins.
-  # Do not add overlapping Pt-600, PT-1400+, HT, enriched, or flat-pT samples.
+  # Legacy unfiltered pT inputs are retained for provenance, disabled for resubmission.
+  # HT and EM-enriched samples below are independent background studies.
   QCD_Pt_30to50:
-    enabled: true
+    enabled: false
     das: "/QCD_Bin-Pt-30to50_TuneCP5_13p6TeV_pythia8/Run3Winter25MiniAOD-142X_mcRun3_2025_realistic_v7-v3/MINIAODSIM"
     is_mc: true
     das_instance: prod/global
 
   QCD_Pt_50to80:
-    enabled: true
+    enabled: false
     das: "/QCD_Bin-Pt-50to80_TuneCP5_13p6TeV_pythia8/Run3Winter25MiniAOD-142X_mcRun3_2025_realistic_v7-v2/MINIAODSIM"
     is_mc: true
     das_instance: prod/global
 
   QCD_Pt_80to120:
-    enabled: true
+    enabled: false
     das: "/QCD_Bin-Pt-80to120_TuneCP5_13p6TeV_pythia8/Run3Winter25MiniAOD-142X_mcRun3_2025_realistic_v7-v2/MINIAODSIM"
     is_mc: true
     das_instance: prod/global
 
   QCD_Pt_120to170:
-    enabled: true
+    enabled: false
     das: "/QCD_Bin-Pt-120to170_TuneCP5_13p6TeV_pythia8/Run3Winter25MiniAOD-142X_mcRun3_2025_realistic_v7-v2/MINIAODSIM"
     is_mc: true
     das_instance: prod/global
 
   QCD_Pt_170to300:
-    enabled: true
+    enabled: false
     das: "/QCD_Bin-Pt-170to300_TuneCP5_13p6TeV_pythia8/Run3Winter25MiniAOD-142X_mcRun3_2025_realistic_v7-v2/MINIAODSIM"
     is_mc: true
     das_instance: prod/global
 
   QCD_Pt_300to470:
-    enabled: true
+    enabled: false
     das: "/QCD_Bin-Pt-300to470_TuneCP5_13p6TeV_pythia8/Run3Winter25MiniAOD-142X_mcRun3_2025_realistic_v7-v2/MINIAODSIM"
     is_mc: true
     das_instance: prod/global
 
   QCD_Pt_470to600:
-    enabled: true
+    enabled: false
     das: "/QCD_Bin-Pt-470to600_TuneCP5_13p6TeV_pythia8/Run3Winter25MiniAOD-142X_mcRun3_2025_realistic_v7-v2/MINIAODSIM"
     is_mc: true
     das_instance: prod/global
 
   QCD_Pt_600to800:
-    enabled: true
+    enabled: false
     das: "/QCD_Bin-Pt-600to800_TuneCP5_13p6TeV_pythia8/Run3Winter25MiniAOD-142X_mcRun3_2025_realistic_v7-v2/MINIAODSIM"
     is_mc: true
     das_instance: prod/global
 
   QCD_Pt_800to1000:
-    enabled: true
+    enabled: false
     das: "/QCD_Bin-Pt-800to1000_TuneCP5_13p6TeV_pythia8/Run3Winter25MiniAOD-142X_mcRun3_2025_realistic_v7-v2/MINIAODSIM"
     is_mc: true
     das_instance: prod/global
 
   QCD_Pt_1000:
-    enabled: true
+    enabled: false
     das: "/QCD_Bin-Pt-1000_TuneCP5_13p6TeV_pythia8/Run3Winter25MiniAOD-142X_mcRun3_2025_realistic_v7-v2/MINIAODSIM"
+    is_mc: true
+    das_instance: prod/global
+
+  # MadGraph HT-binned inputs, with a separate output folder per sample.
+  QCD_HT_40to70:
+    enabled: true
+    das: "/QCD-4Jets_Bin-HT-40to70_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-142X_mcRun3_2025_realistic_v9-v2/MINIAODSIM"
+    is_mc: true
+    das_instance: prod/global
+
+  QCD_HT_70to100:
+    enabled: true
+    das: "/QCD-4Jets_Bin-HT-70to100_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-142X_mcRun3_2025_realistic_v9-v2/MINIAODSIM"
+    is_mc: true
+    das_instance: prod/global
+
+  QCD_HT_100to200:
+    enabled: true
+    das: "/QCD-4Jets_Bin-HT-100to200_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-142X_mcRun3_2025_realistic_v9-v2/MINIAODSIM"
+    is_mc: true
+    das_instance: prod/global
+
+  QCD_HT_200to400:
+    enabled: true
+    das: "/QCD-4Jets_Bin-HT-200to400_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-142X_mcRun3_2025_realistic_v9-v2/MINIAODSIM"
+    is_mc: true
+    das_instance: prod/global
+
+  QCD_HT_400to600:
+    enabled: true
+    das: "/QCD-4Jets_Bin-HT-400to600_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-142X_mcRun3_2025_realistic_v9-v2/MINIAODSIM"
+    is_mc: true
+    das_instance: prod/global
+
+  QCD_HT_600to800:
+    enabled: true
+    das: "/QCD-4Jets_Bin-HT-600to800_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-142X_mcRun3_2025_realistic_v9-v2/MINIAODSIM"
+    is_mc: true
+    das_instance: prod/global
+
+  QCD_HT_800to1000:
+    enabled: true
+    das: "/QCD-4Jets_Bin-HT-800to1000_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-142X_mcRun3_2025_realistic_v9-v2/MINIAODSIM"
+    is_mc: true
+    das_instance: prod/global
+
+  QCD_HT_1000to1200:
+    enabled: true
+    das: "/QCD-4Jets_Bin-HT-1000to1200_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-142X_mcRun3_2025_realistic_v9-v2/MINIAODSIM"
+    is_mc: true
+    das_instance: prod/global
+
+  QCD_HT_1200to1500:
+    enabled: true
+    das: "/QCD-4Jets_Bin-HT-1200to1500_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-142X_mcRun3_2025_realistic_v9-v2/MINIAODSIM"
+    is_mc: true
+    das_instance: prod/global
+
+  QCD_HT_1500to2000:
+    enabled: true
+    das: "/QCD-4Jets_Bin-HT-1500to2000_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-142X_mcRun3_2025_realistic_v9-v2/MINIAODSIM"
+    is_mc: true
+    das_instance: prod/global
+
+  QCD_HT_2000:
+    enabled: true
+    das: "/QCD-4Jets_Bin-HT-2000_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-142X_mcRun3_2025_realistic_v9-v2/MINIAODSIM"
+    is_mc: true
+    das_instance: prod/global
+
+  # EM-enriched inputs for the electron-background study.
+  QCD_EMEnriched_Pt_20to30:
+    enabled: true
+    das: "/QCD_Bin-PT-20to30_Fil-EMEnriched_TuneCP5_13p6TeV_pythia8/Run3Winter25MiniAOD-142X_mcRun3_2025_realistic_v7-v2/MINIAODSIM"
+    is_mc: true
+    das_instance: prod/global
+
+  QCD_EMEnriched_Pt_30to50:
+    enabled: true
+    das: "/QCD_Bin-PT-30to50_Fil-EMEnriched_TuneCP5_13p6TeV_pythia8/Run3Winter25MiniAOD-142X_mcRun3_2025_realistic_v7-v2/MINIAODSIM"
+    is_mc: true
+    das_instance: prod/global
+
+  QCD_EMEnriched_Pt_50to80:
+    enabled: true
+    das: "/QCD_Bin-PT-50to80_Fil-EMEnriched_TuneCP5_13p6TeV_pythia8/Run3Winter25MiniAOD-142X_mcRun3_2025_realistic_v7-v2/MINIAODSIM"
     is_mc: true
     das_instance: prod/global
