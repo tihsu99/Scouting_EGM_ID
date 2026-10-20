@@ -35,9 +35,12 @@ def check_manifest(path, inputdir, samples):
         raise ValueError("Input directory contains files outside the selected production manifest")
 
 
-def run(config_path, inputdir, outputdir, steps=STEPS, studies=None, manifest=None, check_only=False):
+def run(config_path, inputdir, outputdir, steps=None, studies=None, manifest=None, check_only=False):
     config_path = Path(config_path).resolve()
     cfg = yaml.safe_load(config_path.read_text())
+    steps = cfg.get("steps", STEPS) if steps is None else steps
+    if not isinstance(steps, (list, tuple)) or not steps or any(step not in STEPS for step in steps):
+        raise ValueError(f"steps must be a nonempty list drawn from {STEPS}")
     base_path = (config_path.parent / cfg["base_config"]).resolve()
     base = yaml.safe_load(base_path.read_text())
     workflow = deepcopy(base["workflow"])
@@ -45,6 +48,15 @@ def run(config_path, inputdir, outputdir, steps=STEPS, studies=None, manifest=No
         workflow[module].update(overrides)
     selected = cfg["studies"] if studies is None else {name: cfg["studies"][name] for name in studies}
     outputdir = Path(outputdir).resolve()
+    correction_dir = outputdir / "EffectiveArea"
+    corrections = correction_dir / "corrections_all.json"
+    if cfg.get("correction_lib"):
+        if "calibrate" in steps:
+            raise ValueError("Remove calibrate from steps to reuse correction_lib, or remove correction_lib to derive new corrections")
+        corrections = (config_path.parent / cfg["correction_lib"]).resolve()
+    if "calibrate" not in steps and any(step in steps for step in ("prepare", "highpt")):
+        if not corrections.is_file():
+            raise FileNotFoundError(f"Missing completed calibration: {corrections}")
     shared = {key: value for key, value in base.items() if key not in ("workflow", "process")}
     shared.update(inputdir=str(Path(inputdir).resolve()), normalization=cfg["normalization"])
     shared.update(cfg.get("shared", {}))
@@ -68,8 +80,6 @@ def run(config_path, inputdir, outputdir, steps=STEPS, studies=None, manifest=No
     if saved.exists() and yaml.safe_load(saved.read_text()) != resolved:
         raise ValueError("Configuration changed: use a new output directory to avoid mixing artifacts")
     saved.write_text(yaml.safe_dump(resolved, sort_keys=False))
-    correction_dir = outputdir / "EffectiveArea"
-    corrections = correction_dir / "corrections_all.json"
 
     def stage(name, **overrides):
         arguments = dict(shared)
@@ -132,7 +142,8 @@ def main():
     parser.add_argument("--outputdir", required=True)
     parser.add_argument("--manifest", help="Production farm manifest; verifies completeness and receipt provenance")
     parser.add_argument("--studies", nargs="+")
-    parser.add_argument("--steps", nargs="+", choices=STEPS, default=list(STEPS))
+    parser.add_argument("--steps", nargs="+", choices=STEPS,
+                        help="Override YAML steps; defaults to all stages when YAML omits steps")
     parser.add_argument("--check-only", action="store_true", help="Verify normalization and inputs without fitting or training")
     args = parser.parse_args()
     run(args.config, args.inputdir, args.outputdir, args.steps, args.studies, args.manifest, args.check_only)
