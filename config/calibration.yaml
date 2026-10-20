@@ -117,32 +117,32 @@ workflow:
                 x_bins: [10, 50, 40]
                 fitted_func: "y = A1*x + A2"
             IE_scale:
-                x_title: "$1/p_T$ [1/GeV]"
+                x_title: "$p_T$ [GeV]"
                 y_title: "$(I_{ECAL}-\\rho EA_{ECAL})/p_T$"
                 title: "$IE_scale$"
-                x: "1./pt"
+                x: "pt"
                 y: "(ecalIso-`ScoutingRho.fixedGridRhoFastjetAll`*IE_EA)/pt"
                 eta_bins: [0, 1.5, 2.5]
                 y_type: "mean"
-                x_bins: [0.01, 0.1, 18]
-                fitted_func: "y = A1*x + A2"
+                x_bins: [10, 500, 50]
+                fitted_func: "y = A1/x + A2"
             IH_scale:
-                x_title: "$1/p_T$ [1/GeV]"
+                x_title: "$p_T$ [GeV]"
                 y_title: "$(I_{HCAL}-\\rho EA_{HCAL})/p_T$"
                 title: "$IH_scale$"
-                x: "1./pt"
+                x: "pt"
                 y: "(hcalIso-`ScoutingRho.fixedGridRhoFastjetAll`*IH_EA)/pt"
                 eta_bins: [0, 1.5, 2.5]
                 y_type: "mean"
                 x_bins: [0.01, 0.1, 18]
-                fitted_func: "y = A1*x + A2"
+                fitted_func: "y = A1/x + A2"
             IT_scale:
-                x_title: "$1/p_T$ [1/GeV]"
+                x_title: "$p_T$ [GeV]"
                 y_title: "$(I_{track}-\\rho EA_{track})/p_T$"
                 title: "$IT_scale$"
-                x: "1./pt"
+                x: "pt"
                 y: "(trackIso-`ScoutingRho.fixedGridRhoFastjetAll`*IT_EA)/pt"
                 eta_bins: [0, 1.5, 2.5]
                 y_type: "mean"
-                x_bins: [0.01, 0.1, 18]
-                fitted_func: "y = A1*x + A2"
+                x_bins: [10, 500, 50]
+                fitted_func: "y = A1/x + A2"
