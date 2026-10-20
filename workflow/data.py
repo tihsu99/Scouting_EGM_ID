@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
+from tqdm import tqdm
 
 
 def edges(spec):
@@ -15,7 +16,7 @@ def edges(spec):
 
 
 def load_samples(inputdir, process, n_files=-1, normalization=None, columns=None,
-                 max_rows_per_sample=None, batch_size=100000):
+                 max_rows_per_sample=None, batch_size=100000, progress=False):
     """Load samples; an optional prefix cap applies before cuts and event splitting."""
     if max_rows_per_sample is not None and (
             isinstance(max_rows_per_sample, bool) or not isinstance(max_rows_per_sample, int)
@@ -50,7 +51,7 @@ def load_samples(inputdir, process, n_files=-1, normalization=None, columns=None
         for path in paths:
             if limit is not None and rows_read >= limit:
                 break
-            if limit is None:
+            if limit is None and not progress:
                 parts.append(pd.read_parquet(path, columns=columns))
             else:
                 with path.open("rb") as source:
@@ -58,13 +59,22 @@ def load_samples(inputdir, process, n_files=-1, normalization=None, columns=None
                     missing = set(columns or []) - set(parquet.schema_arrow.names)
                     if missing:
                         raise ValueError(f"Missing requested Parquet columns in {path}: {sorted(missing)}")
-                    for batch in parquet.iter_batches(batch_size=min(batch_size, limit - rows_read),
-                                                      columns=columns, use_threads=False):
-                        batch = batch.slice(0, min(batch.num_rows, limit - rows_read))
-                        parts.append(batch.to_pandas(use_threads=False))
-                        rows_read += batch.num_rows
-                        if rows_read >= limit:
-                            break
+                    remaining = None if limit is None else limit - rows_read
+                    total = parquet.metadata.num_rows
+                    if remaining is not None:
+                        total = min(total, remaining)
+                    read_batch_size = batch_size if remaining is None else min(batch_size, remaining)
+                    with tqdm(total=total, desc=f"Read {sample}/{path.name}", unit="row",
+                              unit_scale=True, dynamic_ncols=True, disable=not progress) as bar:
+                        for batch in parquet.iter_batches(batch_size=read_batch_size,
+                                                          columns=columns, use_threads=False):
+                            if limit is not None:
+                                batch = batch.slice(0, min(batch.num_rows, limit - rows_read))
+                            parts.append(batch.to_pandas(use_threads=False))
+                            rows_read += batch.num_rows
+                            bar.update(batch.num_rows)
+                            if limit is not None and rows_read >= limit:
+                                break
             read_paths.append(path)
             if normalization:
                 receipt = json.loads(Path(str(path) + ".json").read_text())

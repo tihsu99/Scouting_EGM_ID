@@ -4,32 +4,43 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 from correctionlib import highlevel
+from tqdm import tqdm
 
 from workflow.data import edges, event_split, load_samples, reweight_training, training_weights
 from workflow.plotting import add_legend, configure_style, save_plot
 
 
-def apply_corrections(df, corrfile="corrections_all.json"):
+def apply_corrections(df, corrfile="corrections_all.json", progress=False):
     cs = highlevel.CorrectionSet.from_file(corrfile)
-    for name in cs.keys():
+    for name in tqdm(cs.keys(), desc="EA corrections", unit="column",
+                     dynamic_ncols=True, disable=not progress):
         df[name] = cs[name].evaluate(np.abs(df.eta.to_numpy(dtype=float)))
     return df
 
 
 def InspectDistributionAnalysis(**kwargs):
     plot_style = kwargs.get("plot_style")
+    progress = kwargs.get("progress", False)
     configure_style(plot_style)
     frames, normalization = load_samples(kwargs["inputdir"], kwargs["process"],
-                                         kwargs.get("n_files", -1), kwargs.get("normalization"))
+                                         kwargs.get("n_files", -1), kwargs.get("normalization"),
+                                         max_rows_per_sample=kwargs.get("max_rows_per_sample"),
+                                         batch_size=kwargs.get("batch_size", 100000), progress=progress)
     storedir, plotdir = Path(kwargs["storedir"]), Path(kwargs["plotdir"])
     storedir.mkdir(parents=True, exist_ok=True)
     (storedir / "normalization.json").write_text(json.dumps(normalization, indent=2) + "\n")
-    for frame in frames.values():
+    for category, frame in frames.items():
+        if progress:
+            tqdm.write(f"Preparing {category}: {len(frame):,} candidates after process selection")
         if kwargs.get("correction_lib"):
-            apply_corrections(frame, kwargs["correction_lib"])
-        for name, expression in kwargs.get("define_variable", {}).items():
+            apply_corrections(frame, kwargs["correction_lib"], progress=progress)
+        for name, expression in tqdm(kwargs.get("define_variable", {}).items(),
+                                     desc=f"{category}: features", unit="column",
+                                     dynamic_ncols=True, disable=not progress):
             frame[name] = frame.eval(expression)
     for region in kwargs["regions"]:
+        if progress:
+            tqdm.write(f"{region}: selecting, splitting and reweighting candidates")
         requirement = kwargs["region_definition"][region]["requirement"]
         selected = {name: df.query(requirement).copy() for name, df in frames.items()}
         if any(df.empty for df in selected.values()):
@@ -52,15 +63,19 @@ def InspectDistributionAnalysis(**kwargs):
             for name, frame in train.items():
                 if frame.training_weight.sum() <= 0:
                     raise ValueError(f"No positive training weight in {region}/{name}")
-        for split, datasets in (("train", train), ("valid", valid)):
-            for name, frame in datasets.items():
-                path = storedir / region / split
-                path.mkdir(parents=True, exist_ok=True)
-                frame.to_parquet(path / f"{name}.parquet", index=False)
+        outputs = [(split, name, frame) for split, datasets in (("train", train), ("valid", valid))
+                   for name, frame in datasets.items()]
+        for split, name, frame in tqdm(outputs, desc=f"{region}: saving tables", unit="file",
+                                      dynamic_ncols=True, disable=not progress):
+            path = storedir / region / split
+            path.mkdir(parents=True, exist_ok=True)
+            frame.to_parquet(path / f"{name}.parquet", index=False)
         # Plot training shapes after reweighting, or physical validation shapes.
         plotted = train or valid
         weight_col = "training_weight" if train else "weight"
-        for var, spec in kwargs.get("inspect_variable", {}).items():
+        for var, spec in tqdm(kwargs.get("inspect_variable", {}).items(),
+                             desc=f"{region}: plotting", unit="plot",
+                             dynamic_ncols=True, disable=not progress):
             bins = edges(spec)
             fig, ax = plt.subplots()
             for name, frame in plotted.items():
