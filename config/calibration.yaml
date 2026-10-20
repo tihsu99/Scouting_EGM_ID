@@ -6,7 +6,7 @@ process:
             DYToLL_M50: 1.0
 
 n_files: -1
-n_workers: 4
+n_workers: 1
 random_seed: 42
 train_ratio: 0.8
 # Preserve the original single-DY, unit-candidate-weight calibration.
