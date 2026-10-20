@@ -61,7 +61,7 @@ workflow:
                 title: "$c_{\\rho}$"
                 x: "`ScoutingRho.fixedGridRhoFastjetAll`"
                 y: "pt*cosh(eta)*hOverE"
-                eta_bins: [0, 1.5, 2.5]
+                eta_bins: [0, 1.0, 1.5, 2.0, 2.2, 2.3, 2.4, 2.5]
                 y_type: "contour90"
                 x_bins: [10, 50, 20]
                 fitted_func: "y = A1*x + A2"
@@ -71,7 +71,7 @@ workflow:
                 title: "$c_E$"
                 x: "(pt*cosh(eta))"
                 y: "hOverE-(c_rho*`ScoutingRho.fixedGridRhoFastjetAll`/(pt*cosh(eta)))"
-                eta_bins: [0, 1.5, 2.5]
+                eta_bins: [0, 1.0, 1.5, 2.0, 2.2, 2.3, 2.4, 2.5]
                 y_type: "contour90"
                 x_bins: [10, 500, 50]
                 fitted_func: "y = A1/x + A2"
