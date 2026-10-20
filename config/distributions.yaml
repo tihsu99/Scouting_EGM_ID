@@ -67,13 +67,13 @@ region_definition:
     requirement: "(abs(eta) >= 1.479) & (abs(eta) < 2.5)"
     label: 'Endcap, $1.479 \leq |\eta| < 2.5$'
 
-# Match the active ID convention: isolation divided by E = pt*cosh(eta).
-# These are raw observables, before effective-area or energy corrections.
+# Match the active ID convention: isolation divided by electron pt.
+# These are raw observables, before effective-area or residual pT corrections.
 define_variable:
   Esc: "pt*cosh(eta)"
-  relecalIso: "ecalIso/Esc"
-  relhcalIso: "hcalIso/Esc"
-  reltrackIso: "trackIso/Esc"
+  relecalIso: "ecalIso/pt"
+  relhcalIso: "hcalIso/pt"
+  reltrackIso: "trackIso/pt"
   abs_dEtaIn: "abs(dEtaIn)"
   abs_dPhiIn: "abs(dPhiIn)"
   abs_ooEMOop: "abs(ooEMOop)"
@@ -143,13 +143,13 @@ inspect_variable:
     label: 'Track isolation [GeV]'
     binning: [0, 50, 50]
   relecalIso:
-    label: 'ECAL isolation / $E$'
+    label: 'ECAL isolation / $p_T$'
     binning: [0, 2, 80]
   relhcalIso:
-    label: 'HCAL isolation / $E$'
+    label: 'HCAL isolation / $p_T$'
     binning: [0, 2, 80]
   reltrackIso:
-    label: 'Track isolation / $E$'
+    label: 'Track isolation / $p_T$'
     binning: [0, 2, 80]
   bestTrack_chi2overndf:
     label: 'Best track $\chi^2$/ndf'

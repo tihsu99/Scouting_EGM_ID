@@ -9,8 +9,8 @@
       "hOverE": 0.2,
       "abs_dEtaIn": 0.012,
       "abs_dPhiIn": 0.06,
-      "relecalIso": 0.1,
-      "reltrackIso": 0.001
+      "relecalIso_E": 0.1,
+      "reltrackIso_E": 0.001
     }
   },
   "ScoutingElectronCustomizev1": {
@@ -23,9 +23,9 @@
       "hOverE": 0.2,
       "abs_dEtaIn": 0.012,
       "abs_dPhiIn": 0.06,
-      "relecalIso": 0.1,
-      "reltrackIso": 0.001,
-      "relhcalIso": 0.6
+      "relecalIso_E": 0.1,
+      "reltrackIso_E": 0.001,
+      "relhcalIso_E": 0.6
     }
   }
 }
