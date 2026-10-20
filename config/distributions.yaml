@@ -3,6 +3,13 @@
 # not cross sections; these plots must not be interpreted as physical yields.
 file_pattern: merged.parquet
 batch_size: 100000
+# Parallelize sample reading and histogramming; plotting stays on the main thread.
+workers: 4
+progress: true
+# Candidate rows, not events; applied per sample BEFORE selections, in file order.
+# null or -1 reads all rows. For a quick check, set e.g. 200000 or use the CLI flag.
+# A cap changes the relative contribution of sample bins within each process.
+max_rows_per_sample: null
 requirement: "pt >= 10"
 selection_label: '$p_T \geq 10$ GeV; all truth categories'
 formats: [pdf, png]
