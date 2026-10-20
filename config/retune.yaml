@@ -26,6 +26,7 @@ split_columns: [sample, sample_row]
 normalization: {}
 
 plot_style:
+    formats: [pdf, png]
     max_series_per_panel: 8
     rc_params:
         figure.figsize: [10, 8]

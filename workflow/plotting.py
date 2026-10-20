@@ -61,5 +61,8 @@ def save_plot(fig, path, plot_style=None):
         hep.cms.label(text, ax=ax, **label)
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()
-    fig.savefig(path, bbox_inches="tight")
+    formats = settings.get("formats")
+    paths = [Path(path).with_suffix(f".{fmt}") for fmt in formats] if formats else [path]
+    for output in paths:
+        fig.savefig(output, bbox_inches="tight")
     plt.close(fig)
