@@ -35,6 +35,7 @@ def InspectDistributionAnalysis(**kwargs):
     configure_style(plot_style)
     frames, normalization = load_samples(kwargs["inputdir"], kwargs["process"],
                                          kwargs.get("n_files", -1), kwargs.get("normalization"),
+                                         columns=kwargs.get("input_columns"),
                                          max_rows_per_sample=kwargs.get("max_rows_per_sample"),
                                          batch_size=kwargs.get("batch_size", 100000), progress=progress)
     storedir, plotdir = Path(kwargs["storedir"]), Path(kwargs["plotdir"])
@@ -51,7 +52,7 @@ def InspectDistributionAnalysis(**kwargs):
         if progress:
             tqdm.write(f"{region}: selecting, splitting and reweighting candidates")
         requirement = kwargs["region_definition"][region]["requirement"]
-        selected = {name: df.query(requirement).copy() for name, df in frames.items()}
+        selected = {name: df.query(requirement) for name, df in frames.items()}
         if any(df.empty for df in selected.values()):
             raise ValueError(f"Empty signal/background in {region}")
         region_plot = plotdir / region
@@ -114,4 +115,6 @@ def InspectDistributionAnalysis(**kwargs):
             save_plot(fig, region_plot / "background_stitching.pdf", plot_style)
             report["total_sumw"] = total.tolist()
             (region_plot / "background_stitching.json").write_text(json.dumps(report, indent=2) + "\n")
+        # Release this region's copies before selecting the next region.
+        del selected, train, valid, outputs, plotted, frame
     return {"storedir": str(storedir)}

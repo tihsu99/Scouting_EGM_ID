@@ -93,6 +93,7 @@ def load_samples(inputdir, process, n_files=-1, normalization=None, columns=None
         if not parts:
             raise ValueError(f"No candidates in {sample}")
         frames[sample] = pd.concat(parts, ignore_index=True)
+        del parts  # Do not retain all input batches alongside the concatenated table.
         frames[sample]["sample"] = sample
         # Preserve the input position before cuts; keep the same sorted files when reusing a split.
         frames[sample]["sample_row"] = np.arange(len(frames[sample]), dtype=np.uint64)
@@ -148,10 +149,13 @@ def load_samples(inputdir, process, n_files=-1, normalization=None, columns=None
     for category, cfg in process.items():
         parts = []
         for sample, scale in cfg["samples"].items():
-            frame = frames[sample].copy()
-            frame["weight"] *= float(scale)
+            # Replace only the weight column before cuts; do not copy rejected rows.
+            frame = frames[sample].copy(deep=False)
+            frame["weight"] = frame["weight"] * float(scale)
             if cfg.get("requirement"):
-                frame = frame.query(cfg["requirement"]).copy()
+                frame = frame.query(cfg["requirement"])
+            else:
+                frame = frame.copy()
             parts.append(frame)
         selected[category] = pd.concat(parts, ignore_index=True)
         if selected[category].empty:
