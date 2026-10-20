@@ -176,13 +176,18 @@ def DeriveEffectiveAreaAnalysis(**kwargs):
         eta_bins = inspect_dict["eta_bins"]
         fitted_func_str = inspect_dict["fitted_func"]
         y_type = inspect_dict["y_type"]
-        x_bins = inspect_dict["x_bins"]
+        x_bins_by_eta = inspect_dict.get("x_bins_by_eta")
+        if x_bins_by_eta is None:
+            x_bins_by_eta = [None] * (len(eta_bins) - 1)
+        if not isinstance(x_bins_by_eta, (list, tuple)) or len(x_bins_by_eta) != len(eta_bins) - 1:
+            raise ValueError(f"{var_name}: x_bins_by_eta must have {len(eta_bins) - 1} entries, "
+                             "one per eta interval; use null to inherit x_bins")
+        x_bins_by_eta = [edges(inspect_dict["x_bins"] if spec is None else spec)
+                         for spec in x_bins_by_eta]
         x_title = inspect_dict["x_title"]
         y_title = inspect_dict["y_title"]
         title = inspect_dict["title"]
         df_all[var_name] = 0.0
-
-        x_bins = edges(x_bins)
 
         print(f"📊 Fitting {y_expr} vs {x_expr}")
         print(f"η bins: {eta_bins}")
@@ -198,6 +203,7 @@ def DeriveEffectiveAreaAnalysis(**kwargs):
         tasks = []
         for i in range(len(eta_bins) - 1):
             eta_min, eta_max = eta_bins[i], eta_bins[i + 1]
+            x_bins = x_bins_by_eta[i]
             mask = (abs(df_all["eta"]) >= eta_min) & (abs(df_all["eta"]) < eta_max)
             x_sel = df_all.loc[mask, f"{var_name}_xval"].to_numpy()
             y_sel = df_all.loc[mask, f"{var_name}_yval"].to_numpy()

@@ -74,6 +74,17 @@ workflow:
                 eta_bins: [0, 1.0, 1.5, 1.8, 2.0, 2.2, 2.3, 2.4, 2.5]
                 y_type: "contour90"
                 x_bins: [10, 500, 50]
+                # One entry per eta interval; null inherits x_bins.
+                # Replace null with [min, max, n_bins] or explicit edges (4+ values).
+                x_bins_by_eta:
+                    - [ 30, 500, 50 ]  # 0.0 <= |eta| < 1.0
+                    - [ 50, 500, 50 ]  # 1.0 <= |eta| < 1.5
+                    - [ 100, 500, 50 ]  # 1.5 <= |eta| < 1.8
+                    - [ 100, 500, 50 ]  # 1.8 <= |eta| < 2.0
+                    - [ 150, 500, 50 ]  # 2.0 <= |eta| < 2.2
+                    - [150, 500, 50]  # 2.2 <= |eta| < 2.3
+                    - [150, 500, 50]  # 2.3 <= |eta| < 2.4
+                    - [150, 500, 50]  # 2.4 <= |eta| < 2.5
                 fitted_func: "y = A1/x + A2"
             IE_EA:
                 x_title: "$\\rho$"
@@ -83,7 +94,7 @@ workflow:
                 y: "ecalIso"
                 eta_bins: [0, 1.0, 1.5, 2.0, 2.2, 2.3, 2.4, 2.5]
                 y_type: "mean"
-                x_bins: [0, 60, 16]
+                x_bins: [10, 50, 40]
                 fitted_func: "y = A1*x + A2"
             IH_EA:
                 x_title: "$\\rho$"
@@ -93,7 +104,7 @@ workflow:
                 y: "hcalIso"
                 eta_bins: [0, 1.0, 1.5, 2.0, 2.2, 2.3, 2.4, 2.5]
                 y_type: "mean"
-                x_bins: [0, 60, 16]
+                x_bins: [10, 50, 40]
                 fitted_func: "y = A1*x + A2"
             IT_EA:
                 x_title: "$\\rho$"
@@ -103,7 +114,7 @@ workflow:
                 y: "trackIso"
                 eta_bins: [0, 1.0, 1.5, 2.0, 2.2, 2.3, 2.4, 2.5]
                 y_type: "mean"
-                x_bins: [0, 60, 16]
+                x_bins: [10, 50, 40]
                 fitted_func: "y = A1*x + A2"
             IE_scale:
                 x_title: "$1/p_T$ [1/GeV]"
@@ -113,7 +124,7 @@ workflow:
                 y: "(ecalIso-`ScoutingRho.fixedGridRhoFastjetAll`*IE_EA)/pt"
                 eta_bins: [0, 1.5, 2.5]
                 y_type: "mean"
-                x_bins: [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1]
+                x_bins: [0.01, 0.1, 18]
                 fitted_func: "y = A1*x + A2"
             IH_scale:
                 x_title: "$1/p_T$ [1/GeV]"
@@ -123,7 +134,7 @@ workflow:
                 y: "(hcalIso-`ScoutingRho.fixedGridRhoFastjetAll`*IH_EA)/pt"
                 eta_bins: [0, 1.5, 2.5]
                 y_type: "mean"
-                x_bins: [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1]
+                x_bins: [0.01, 0.1, 18]
                 fitted_func: "y = A1*x + A2"
             IT_scale:
                 x_title: "$1/p_T$ [1/GeV]"
@@ -133,5 +144,5 @@ workflow:
                 y: "(trackIso-`ScoutingRho.fixedGridRhoFastjetAll`*IT_EA)/pt"
                 eta_bins: [0, 1.5, 2.5]
                 y_type: "mean"
-                x_bins: [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1]
+                x_bins: [0.01, 0.1, 18]
                 fitted_func: "y = A1*x + A2"
