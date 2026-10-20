@@ -63,7 +63,7 @@ workflow:
                 y: "pt*cosh(eta)*hOverE"
                 eta_bins: [0, 0.5, 1.0, 1.5, 2.0, 2.5]
                 y_type: "contour90"
-                x_bins: [0, 60, 16]
+                x_bins: [10, 50, 20]
                 fitted_func: "y = A1*x + A2"
             c_E:
                 x_title: "$E_{SC}$ [GeV]"
