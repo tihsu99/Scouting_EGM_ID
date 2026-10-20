@@ -72,7 +72,7 @@ workflow:
                 x: "pt*cosh(eta)"
                 y: "hOverE-(c_rho*`ScoutingRho.fixedGridRhoFastjetAll`/(pt*cosh(eta)))"
                 eta_bins: [0, 0.5, 1.0, 1.5, 2.0, 2.5]
-                y_type: "mean"
+                y_type: "contour90"
                 x_bins: [0, 1000, 50]
                 fitted_func: "y = A1*x + A2"
             IE_EA:
