@@ -134,7 +134,7 @@ workflow:
 #
 
     InspectDistribution:
-        skip: False
+        skip: true
         progress: true
         # Input candidates per sample, before truth/region cuts: DY and TT each
         # get an independent 6M-row cap. null or -1 reads all rows.
@@ -213,93 +213,95 @@ workflow:
             reltrackIso: [0, 2, 40]
             r9: [0, 1.0, 40]
             sigmaIetaIeta: [0, 0.05, 20]
-#    TrainCutBasedID_TMVA:
-#        weight_col: training_weight
-#        isolation_denominator: pt
-#        efficiency_tolerance: 0.03
-#        inputdir: /eos/user/t/tihsu/database/EGM_Scouting_ID_analysis/standard/data
-#        outputdir: /eos/user/t/tihsu/database/EGM_Scouting_ID_analysis/standard/train_results
-#        regions:
-#            - Barrel
-#            - Endcap
-#        target_efficiencies: [0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 0.98, 0.99]
-#        n_workers: 4
-#        n_signal: 100000
-#        n_background: 100000
-#        tmva_cycles: 60
-#        tmva_popsize: 100
-#        random_seed: 12345
-#        train_ratio: 0.8
-#        n_trials: 2
-#        variables:
-#          Iso:
-#            hOverE_calibrated:
-#                min: 0
-#                max: 999999
-#                direction: less
-#                binning: [0, 0.2, 20]
-#            relecalIsoWithEA_calibrated:
-#                min: 0
-#                max: 999999
-#                direction: less
-#                binning: [0, 2, 40]
-#            reltrackIsoWithEA_calibrated:
-#                min: 0
-#                max: 999999
-#                direction: less
-#                binning: [0, 2, 40]
-#            relhcalIsoWithEA_calibrated:
-#                min: 0
-#                max: 999999
-#                direction: less
-#                binning: [0, 2, 40]
-#            sigmaIetaIeta:
-#                min: 0
-#                max: 999999
-#                direction: less
-#                binning: [0, 0.05, 20]
-#            abs_dEtaIn:
-#                min: 0
-#                max: 999999
-#                direction: less
-#                binning: [0, 0.2, 20]
-#            abs_dPhiIn:
-#                min: 0
-#                max: 999999
-#                direction: less
-#                binning: [0, 0.2, 20]
-#            abs_ooEMOop:
-#                min: 0
-#                max: 99999
-#                direction: less
-#                binning: [0, 0.2, 20]
-#
-#          noIso:
-#            hOverE_calibrated:
-#                min: 0
-#                max: 999999
-#                direction: less
-#                binning: [0, 0.2, 20]
-#            sigmaIetaIeta:
-#                min: 0
-#                max: 999999
-#                direction: less
-#                binning: [0, 0.05, 20]
-#            abs_dEtaIn:
-#                min: 0
-#                max: 999999
-#                direction: less
-#                binning: [0, 0.2, 20]
-#            abs_dPhiIn:
-#                min: 0
-#                max: 999999
-#                direction: less
-#                binning: [0, 0.2, 20]
-#            abs_ooEMOop:
-#                min: 0
-#                max: 99999
-#                direction: less
-#                binning: [0, 0.2, 20]
+
+
+    TrainCutBasedID_TMVA:
+        weight_col: training_weight
+        isolation_denominator: pt
+        efficiency_tolerance: 0.03
+        inputdir: /eos/user/t/tihsu/dataset/scouting_id/data
+        outputdir: /eos/user/t/tihsu/dataset/scouting_id/train
+        regions:
+            - Barrel
+            - Endcap
+        target_efficiencies: [0.7, 0.8, 0.9, 0.95]
+        n_workers: 4
+        n_signal: 300000
+        n_background: 300000
+        tmva_cycles: 60
+        tmva_popsize: 100
+        random_seed: 12345
+        train_ratio: 0.8
+        n_trials: 2
+        variables:
+          Iso:
+            hOverE_calibrated:
+                min: 0
+                max: 999999
+                direction: less
+                binning: [0, 0.2, 20]
+            relecalIsoWithEA_calibrated:
+                min: 0
+                max: 999999
+                direction: less
+                binning: [0, 2, 40]
+            reltrackIsoWithEA_calibrated:
+                min: 0
+                max: 999999
+                direction: less
+                binning: [0, 2, 40]
+            relhcalIsoWithEA_calibrated:
+                min: 0
+                max: 999999
+                direction: less
+                binning: [0, 2, 40]
+            sigmaIetaIeta:
+                min: 0
+                max: 999999
+                direction: less
+                binning: [0, 0.05, 20]
+            abs_dEtaIn:
+                min: 0
+                max: 999999
+                direction: less
+                binning: [0, 0.2, 20]
+            abs_dPhiIn:
+                min: 0
+                max: 999999
+                direction: less
+                binning: [0, 0.2, 20]
+            abs_ooEMOop:
+                min: 0
+                max: 99999
+                direction: less
+                binning: [0, 0.2, 20]
+
+          noIso:
+            hOverE_calibrated:
+                min: 0
+                max: 999999
+                direction: less
+                binning: [0, 0.2, 20]
+            sigmaIetaIeta:
+                min: 0
+                max: 999999
+                direction: less
+                binning: [0, 0.05, 20]
+            abs_dEtaIn:
+                min: 0
+                max: 999999
+                direction: less
+                binning: [0, 0.2, 20]
+            abs_dPhiIn:
+                min: 0
+                max: 999999
+                direction: less
+                binning: [0, 0.2, 20]
+            abs_ooEMOop:
+                min: 0
+                max: 99999
+                direction: less
+                binning: [0, 0.2, 20]
 
 
 #    ValidateID:
