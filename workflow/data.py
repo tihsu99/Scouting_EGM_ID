@@ -150,7 +150,8 @@ def load_samples(inputdir, process, n_files=-1, normalization=None, columns=None
 
 
 def event_split(frame, fraction=0.8, seed=42, columns=None):
-    columns = columns or ["sample", "run", "luminosityBlock", "event"]
+    # Luigi freezes YAML lists into tuples; pandas needs a list for multiple columns.
+    columns = list(columns or ["sample", "run", "luminosityBlock", "event"])
     missing = set(columns) - set(frame.columns)
     if missing:
         raise ValueError(f"Missing split columns {sorted(missing)}; configure split_columns for "
