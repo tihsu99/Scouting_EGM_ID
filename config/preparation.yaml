@@ -67,7 +67,7 @@ shared:
 workflow_overrides:
   InspectDistribution:
     regions: [Barrel, Endcap]
-    train_ratio: 0.8
+    train_ratio: 0.08
     # BACKGROUND is the target: reweight DY training candidates to the combined
     # background (pt, eta) shape, separately for each study and detector region.
     # SIGNAL instead reweights the background to DY. Validation keeps physical weights.
