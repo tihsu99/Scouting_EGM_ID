@@ -18,6 +18,17 @@ def apply_corrections(df, corrfile="corrections_all.json", progress=False):
     return df
 
 
+def define_variables(frame, definitions, progress=False, desc="Features"):
+    for name, definition in tqdm(definitions.items(), desc=desc, unit="column",
+                                 dynamic_ncols=True, disable=not progress):
+        if isinstance(definition, str):
+            frame[name] = frame.eval(definition)
+        else:
+            # Older pandas cannot evaluate .clip() calls on arithmetic expressions.
+            frame[name] = frame.eval(definition["expression"]).clip(
+                lower=definition.get("lower"), upper=definition.get("upper"))
+
+
 def InspectDistributionAnalysis(**kwargs):
     plot_style = kwargs.get("plot_style")
     progress = kwargs.get("progress", False)
@@ -34,10 +45,8 @@ def InspectDistributionAnalysis(**kwargs):
             tqdm.write(f"Preparing {category}: {len(frame):,} candidates after process selection")
         if kwargs.get("correction_lib"):
             apply_corrections(frame, kwargs["correction_lib"], progress=progress)
-        for name, expression in tqdm(kwargs.get("define_variable", {}).items(),
-                                     desc=f"{category}: features", unit="column",
-                                     dynamic_ncols=True, disable=not progress):
-            frame[name] = frame.eval(expression)
+        define_variables(frame, kwargs.get("define_variable", {}), progress=progress,
+                         desc=f"{category}: features")
     for region in kwargs["regions"]:
         if progress:
             tqdm.write(f"{region}: selecting, splitting and reweighting candidates")

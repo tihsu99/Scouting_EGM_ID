@@ -136,9 +136,9 @@ workflow:
         skip: False
         progress: true
         # Input candidates per sample, before truth/region cuts: DY and TT each
-        # get an independent 2M-row cap. null or -1 reads all rows.
-        max_rows_per_sample: 2000000
-        batch_size: 100000
+        # get an independent 6M-row cap. null or -1 reads all rows.
+        max_rows_per_sample: 6000000
+        batch_size: 200000
         kinematic_reweighting: BACKGROUND
         training_weight_mode: absolute
         reweight_binning:
@@ -154,22 +154,22 @@ workflow:
             - Endcap
         correction_lib: "/eos/user/t/tihsu/dataset/scouting_id/calibration_pt/EffectiveArea/corrections_all.json"
         define_variable:
-           # Constrain fitted scale terms when applying the saved corrections.
-           "IE_scale": "IE_scale.clip(lower=0)"
-           "IH_scale": "IH_scale.clip(lower=0)"
-           "IT_scale": "IT_scale.clip(lower=0)"
+           # Apply bounds outside expression evaluation for older CERN pandas.
+           "IE_scale": {expression: "IE_scale", lower: 0}
+           "IH_scale": {expression: "IH_scale", lower: 0}
+           "IT_scale": {expression: "IT_scale", lower: 0}
            "Esc": "pt*cosh(eta)"
            # H/E retains E; isolation follows the pT-based calibration.
            "hOverE_calibrated": "hOverE-(c_rho * `ScoutingRho.fixedGridRhoFastjetAll` + c_E)/Esc"
-           "relecalIso": "(ecalIso/pt).clip(lower=0)"
-           "relhcalIso": "(hcalIso/pt).clip(lower=0)"
-           "reltrackIso": "(trackIso/pt).clip(lower=0)"
-           "relecalIsoWithEA": "((ecalIso-`ScoutingRho.fixedGridRhoFastjetAll`*IE_EA)/pt).clip(lower=0)"
-           "relecalIsoWithEA_calibrated": "(relecalIsoWithEA - IE_scale/pt).clip(lower=0)"
-           "relhcalIsoWithEA": "((hcalIso-`ScoutingRho.fixedGridRhoFastjetAll`*IH_EA)/pt).clip(lower=0)"
-           "relhcalIsoWithEA_calibrated": "(relhcalIsoWithEA - IH_scale/pt).clip(lower=0)"
-           "reltrackIsoWithEA": "((trackIso-`ScoutingRho.fixedGridRhoFastjetAll`*IT_EA)/pt).clip(lower=0)"
-           "reltrackIsoWithEA_calibrated": "(reltrackIsoWithEA - IT_scale/pt).clip(lower=0)"
+           "relecalIso": {expression: "ecalIso/pt", lower: 0}
+           "relhcalIso": {expression: "hcalIso/pt", lower: 0}
+           "reltrackIso": {expression: "trackIso/pt", lower: 0}
+           "relecalIsoWithEA": {expression: "(ecalIso-`ScoutingRho.fixedGridRhoFastjetAll`*IE_EA)/pt", lower: 0}
+           "relecalIsoWithEA_calibrated": {expression: "relecalIsoWithEA - IE_scale/pt", lower: 0}
+           "relhcalIsoWithEA": {expression: "(hcalIso-`ScoutingRho.fixedGridRhoFastjetAll`*IH_EA)/pt", lower: 0}
+           "relhcalIsoWithEA_calibrated": {expression: "relhcalIsoWithEA - IH_scale/pt", lower: 0}
+           "reltrackIsoWithEA": {expression: "(trackIso-`ScoutingRho.fixedGridRhoFastjetAll`*IT_EA)/pt", lower: 0}
+           "reltrackIsoWithEA_calibrated": {expression: "reltrackIsoWithEA - IT_scale/pt", lower: 0}
            "abs_dEtaIn": "abs(dEtaIn)"
            "abs_dPhiIn": "abs(dPhiIn)"
            "abs_ooEMOop": "abs(ooEMOop)"
