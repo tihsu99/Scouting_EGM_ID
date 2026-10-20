@@ -130,7 +130,7 @@ workflow:
                 x_title: "$p_T$ [GeV]"
                 y_title: "$(I_{HCAL}-\\rho EA_{HCAL})/p_T$"
                 title: "$IH_scale$"
-                x: "pt"
+                x: "1./pt"
                 y: "(hcalIso-`ScoutingRho.fixedGridRhoFastjetAll`*IH_EA)/pt"
                 eta_bins: [0, 1.5, 2.5]
                 y_type: "contour90"
@@ -140,7 +140,7 @@ workflow:
                 x_title: "$p_T$ [GeV]"
                 y_title: "$(I_{track}-\\rho EA_{track})/p_T$"
                 title: "$IT_scale$"
-                x: "pt"
+                x: "1./pt"
                 y: "(trackIso-`ScoutingRho.fixedGridRhoFastjetAll`*IT_EA)/pt"
                 eta_bins: [0, 1.5, 2.5]
                 y_type: "contour90"
