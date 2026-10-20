@@ -11,56 +11,20 @@ calibration_samples: [DYToLL_M50]
 signal_requirement: "((status == 1) | (status == 2)) & (pt > 10) & (abs(eta) < 2.5)"
 background_requirement: "((status == 0) | (status == 3)) & (pt > 10) & (abs(eta) < 2.5)"
 training_weight_mode: absolute
+# Start from unit candidate weights; kinematic reweighting is applied below.
+normalization: {}
 
 studies:
   dy_tt:
     signal: [DYToLL_M50]
     background: [TT]
-  dy_qcd_em:
-    signal: [DYToLL_M50]
-    background:
-      - QCD_EMEnriched_Pt_20to30
-      - QCD_EMEnriched_Pt_30to50
-      - QCD_EMEnriched_Pt_50to80
-#
-## Set verified effective cross sections in pb for the exact DAS datasets in
-## ntuplizer.yaml. Include matching/filter efficiency once, never twice.
-## Null values intentionally stop preparation; unit weights cannot stitch QCD.
-## Receipts must provide preselection sum_genweight and generator-bin bounds.
-## Physical weight = luminosity_pb * cross_section_pb * Generator.weight / sum_genweight.
-#normalization:
-#  luminosity_pb: 1.0
-#  groups:
-#    DY:
-#      samples: [DYToLL_M50]
-#      cross_section_pb: null
-#    TT:
-#      samples: [TT]
-#      cross_section_pb: null
-#    QCD_EMEnriched_Pt_20to30:
-#      samples: [QCD_EMEnriched_Pt_20to30]
-#      cross_section_pb: null
-#      stitch_family: QCD_EM
-#      generator_range: [20, 30]
-#    QCD_EMEnriched_Pt_30to50:
-#      samples: [QCD_EMEnriched_Pt_30to50]
-#      cross_section_pb: null
-#      stitch_family: QCD_EM
-#      generator_range: [30, 50]
-#    QCD_EMEnriched_Pt_50to80:
-#      samples: [QCD_EMEnriched_Pt_50to80]
-#      cross_section_pb: null
-#      stitch_family: QCD_EM
-#      generator_range: [50, 80]
-# The EM-enriched set covers generator pT [20, 80), not the inclusive QCD spectrum.
-# Generator bins overlap in reconstructed electron pT: do not cut/stitch on electron pT.
-# Each bin is normalized independently, then summed before kinematic reweighting.
 
 shared:
   n_files: -1
   random_seed: 42
   train_ratio: 0.8
-  # Match calibration.yaml exactly; preserve the same files and original row order.
+  # Reuse calibration identifiers and seed; preserve files and original row order.
+  # The preparation-stage train_ratio below overrides the shared default.
   # This is a candidate split, not an event-disjoint validation sample.
   split_columns: [sample, sample_row]
 
@@ -68,16 +32,14 @@ workflow_overrides:
   InspectDistribution:
     regions: [Barrel, Endcap]
     train_ratio: 0.08
-    # BACKGROUND is the target: reweight DY training candidates to the combined
-    # background (pt, eta) shape, separately for each study and detector region.
-    # SIGNAL instead reweights the background to DY. Validation keeps physical weights.
+    # BACKGROUND is the target: reweight DY training candidates to the TT
+    # (pt, eta) shape, separately in Barrel and Endcap.
+    # SIGNAL instead reweights TT to DY. Validation keeps unit candidate weights.
     kinematic_reweighting: BACKGROUND
     reweight_binning:
       pt: [10, 15, 20, 30, 40, 60, 80, 120, 200, 300, 500, 700, 1000, 2000, 5000, 10000]
       eta: [-2.5, -2.0, -1.479, -1.0, -0.5, 0.0, 0.5, 1.0, 1.479, 2.0, 2.5]
-    # Audit the physical electron-pT spectrum per sample and in total.
-    # This controls the diagnostic histogram, not generator-bin membership.
-    stitch_binning: [10, 15, 20, 30, 40, 50, 60, 80, 100, 120, 170, 200, 300, 500, 1000, 2000, 5000, 10000]
+    stitch_binning: null
     define_variable:
       Esc: "pt*cosh(eta)"
       hOverE_calibrated: "hOverE-(c_rho*`ScoutingRho.fixedGridRhoFastjetAll`+c_E)/Esc"
