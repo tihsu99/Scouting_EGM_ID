@@ -39,7 +39,7 @@ workflow:
         skip: false
         isolation_denominator: pt
         plotdir: /eos/user/t/tihsu/dataset/scouting_id/calibration_pt/EffectiveArea
-        requirement: "((status == 1) | (status == 2)) & (pt > 10) & (abs(eta) < 2.5) & (hOverE > 0)"
+        requirement: "((status == 1)) & (pt > 10) & (abs(eta) < 2.5) & (hOverE > 0)"
         # Fit only the training partition defined by split_columns.
         calibration_train_only: true
         calibration_weight_mode: nonnegative
