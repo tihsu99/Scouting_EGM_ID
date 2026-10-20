@@ -147,8 +147,18 @@ def DeriveEffectiveAreaAnalysis(**kwargs):
     os.makedirs(plotdir, exist_ok=True)
     print(f"✅ [DeriveEffectiveArea] Plot dir: {plotdir}")
 
-    frames, _ = load_samples(inputdir, process, n_files, kwargs.get("normalization"))
+    limit = kwargs.get("max_rows_per_sample")
+    if limit is not None and limit != -1:
+        print(f"Reading at most {limit:,} input candidates per sample before cuts and splitting")
+    frames, report = load_samples(
+        inputdir, process, n_files, kwargs.get("normalization"),
+        columns=kwargs.get("input_columns"), max_rows_per_sample=limit,
+        batch_size=kwargs.get("batch_size", 100000),
+    )
+    for sample, info in report.items():
+        print(f"Read {info['rows']:,} input candidates from {sample}")
     df_all = pd.concat(frames.values(), ignore_index=True)
+    del frames
     if requirement:
         df_all = df_all.query(requirement).copy()
     if kwargs.get("calibration_train_only", False):

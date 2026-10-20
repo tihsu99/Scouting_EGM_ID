@@ -7,6 +7,9 @@ process:
 
 n_files: -1
 n_workers: 1
+# Read the first N candidates per sample, before cuts/splitting; null or -1 reads all.
+max_rows_per_sample: 1000000
+batch_size: 100000
 random_seed: 42
 train_ratio: 0.8
 # Preserve the original single-DY, unit-candidate-weight calibration.
@@ -38,6 +41,19 @@ workflow:
         # Use the same event split as subsequent feature preparation.
         calibration_train_only: true
         calibration_weight_mode: nonnegative
+        # Read only the columns required by the fits, selection and event split.
+        input_columns:
+            - pt
+            - eta
+            - status
+            - hOverE
+            - ecalIso
+            - hcalIso
+            - trackIso
+            - ScoutingRho.fixedGridRhoFastjetAll
+            - run
+            - luminosityBlock
+            - event
         EffectiveArea:
             # H/E retains E = pt*cosh(eta) in both calibration steps.
             c_rho:

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 
 
 def edges(spec):
@@ -13,9 +14,20 @@ def edges(spec):
     return result
 
 
-def load_samples(inputdir, process, n_files=-1, normalization=None):
-    """Normalize selected files before candidate cuts; extensions share one denominator."""
+def load_samples(inputdir, process, n_files=-1, normalization=None, columns=None,
+                 max_rows_per_sample=None, batch_size=100000):
+    """Load samples; an optional prefix cap applies before cuts and event splitting."""
+    if max_rows_per_sample is not None and (
+            isinstance(max_rows_per_sample, bool) or not isinstance(max_rows_per_sample, int)
+            or (max_rows_per_sample < 1 and max_rows_per_sample != -1)):
+        raise ValueError("max_rows_per_sample must be a positive integer, null, or -1")
+    limit = None if max_rows_per_sample == -1 else max_rows_per_sample
+    if isinstance(batch_size, bool) or not isinstance(batch_size, int) or batch_size < 1:
+        raise ValueError("batch_size must be a positive integer")
     normalization = normalization or {}
+    # Prefix truncation has no preselection generator sum for physical yields.
+    if limit is not None and normalization:
+        raise ValueError("max_rows_per_sample cannot be combined with cross-section normalization")
     groups = normalization.get("groups", {})
     weight_column = normalization.get("weight_column", "Generator.weight")
     group_for = {}
@@ -33,11 +45,24 @@ def load_samples(inputdir, process, n_files=-1, normalization=None):
             paths = paths[:n_files]
         if not paths:
             raise FileNotFoundError(f"No Parquet files for {sample} in {inputdir}")
-        parts, metadata = [], []
+        parts, metadata, read_paths = [], [], []
+        rows_read = 0
         for path in paths:
-            frame = pd.read_parquet(path)
-            frame["sample"] = sample
-            parts.append(frame)
+            if limit is not None and rows_read >= limit:
+                break
+            if limit is None:
+                parts.append(pd.read_parquet(path, columns=columns))
+            else:
+                with path.open("rb") as source:
+                    parquet = pq.ParquetFile(source)
+                    for batch in parquet.iter_batches(batch_size=min(batch_size, limit - rows_read),
+                                                      columns=columns, use_threads=False):
+                        batch = batch.slice(0, min(batch.num_rows, limit - rows_read))
+                        parts.append(batch.to_pandas(use_threads=False))
+                        rows_read += batch.num_rows
+                        if rows_read >= limit:
+                            break
+            read_paths.append(path)
             if normalization:
                 receipt = json.loads(Path(str(path) + ".json").read_text())
                 if receipt["sample"] != sample:
@@ -52,8 +77,11 @@ def load_samples(inputdir, process, n_files=-1, normalization=None):
                                      "Recover metadata from the source events before weighted analysis; "
                                      "merged electron rows alone cannot supply it.")
                 metadata.append(info)
+        if not parts:
+            raise ValueError(f"No candidates in {sample}")
         frames[sample] = pd.concat(parts, ignore_index=True)
-        reports[sample] = {"files": [str(p) for p in paths], "rows": len(frames[sample])}
+        frames[sample]["sample"] = sample
+        reports[sample] = {"files": [str(p) for p in read_paths], "rows": len(frames[sample])}
         if normalization:
             if sample not in group_for:
                 raise ValueError(f"Missing normalization group for {sample}")
