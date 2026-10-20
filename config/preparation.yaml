@@ -22,36 +22,36 @@ studies:
       - QCD_EMEnriched_Pt_20to30
       - QCD_EMEnriched_Pt_30to50
       - QCD_EMEnriched_Pt_50to80
-
-# Set verified effective cross sections in pb for the exact DAS datasets in
-# ntuplizer.yaml. Include matching/filter efficiency once, never twice.
-# Null values intentionally stop preparation; unit weights cannot stitch QCD.
-# Receipts must provide preselection sum_genweight and generator-bin bounds.
-# Physical weight = luminosity_pb * cross_section_pb * Generator.weight / sum_genweight.
-normalization:
-  luminosity_pb: 1.0
-  groups:
-    DY:
-      samples: [DYToLL_M50]
-      cross_section_pb: null
-    TT:
-      samples: [TT]
-      cross_section_pb: null
-    QCD_EMEnriched_Pt_20to30:
-      samples: [QCD_EMEnriched_Pt_20to30]
-      cross_section_pb: null
-      stitch_family: QCD_EM
-      generator_range: [20, 30]
-    QCD_EMEnriched_Pt_30to50:
-      samples: [QCD_EMEnriched_Pt_30to50]
-      cross_section_pb: null
-      stitch_family: QCD_EM
-      generator_range: [30, 50]
-    QCD_EMEnriched_Pt_50to80:
-      samples: [QCD_EMEnriched_Pt_50to80]
-      cross_section_pb: null
-      stitch_family: QCD_EM
-      generator_range: [50, 80]
+#
+## Set verified effective cross sections in pb for the exact DAS datasets in
+## ntuplizer.yaml. Include matching/filter efficiency once, never twice.
+## Null values intentionally stop preparation; unit weights cannot stitch QCD.
+## Receipts must provide preselection sum_genweight and generator-bin bounds.
+## Physical weight = luminosity_pb * cross_section_pb * Generator.weight / sum_genweight.
+#normalization:
+#  luminosity_pb: 1.0
+#  groups:
+#    DY:
+#      samples: [DYToLL_M50]
+#      cross_section_pb: null
+#    TT:
+#      samples: [TT]
+#      cross_section_pb: null
+#    QCD_EMEnriched_Pt_20to30:
+#      samples: [QCD_EMEnriched_Pt_20to30]
+#      cross_section_pb: null
+#      stitch_family: QCD_EM
+#      generator_range: [20, 30]
+#    QCD_EMEnriched_Pt_30to50:
+#      samples: [QCD_EMEnriched_Pt_30to50]
+#      cross_section_pb: null
+#      stitch_family: QCD_EM
+#      generator_range: [30, 50]
+#    QCD_EMEnriched_Pt_50to80:
+#      samples: [QCD_EMEnriched_Pt_50to80]
+#      cross_section_pb: null
+#      stitch_family: QCD_EM
+#      generator_range: [50, 80]
 # The EM-enriched set covers generator pT [20, 80), not the inclusive QCD spectrum.
 # Generator bins overlap in reconstructed electron pT: do not cut/stitch on electron pT.
 # Each bin is normalized independently, then summed before kinematic reweighting.
