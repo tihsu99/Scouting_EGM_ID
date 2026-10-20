@@ -243,7 +243,8 @@ def plot_histograms(config, binning, histograms, outputdir):
                 progress.update()
 
 
-def run(config_path, inputdir, outputdir, workers=None, max_rows_per_sample=None, progress=None):
+def run(config_path, inputdir, outputdir, workers=None, max_rows_per_sample=None, progress=None,
+        plot_only=False):
     config = yaml.safe_load(Path(config_path).read_text())
     for name, value in dict(workers=workers, max_rows_per_sample=max_rows_per_sample,
                             progress=progress).items():
@@ -272,6 +273,24 @@ def run(config_path, inputdir, outputdir, workers=None, max_rows_per_sample=None
             comparable.append(selection)
         if previous["inputdir"] != resolved["inputdir"] or comparable[0] != comparable[1]:
             raise ValueError("Configuration changed; use a new output directory to avoid mixing plots")
+    if plot_only:
+        if not config_output.is_file():
+            raise FileNotFoundError(f"Missing saved configuration: {config_output}")
+        report = json.loads((outputdir / "summary.json").read_text())
+        binning, histograms = {}, {}
+        for region, variables in report["histograms"].items():
+            histograms[region] = {}
+            for var, saved in variables.items():
+                binning[var] = np.asarray(saved["edges"], dtype=float)
+                if not np.array_equal(binning[var], edges(config["inspect_variable"][var]["binning"])):
+                    raise ValueError(f"Saved binning does not match configuration: {region}/{var}")
+                histograms[region][var] = {
+                    name: dict(hist, counts=np.asarray(hist["counts"], dtype=np.int64))
+                    for name, hist in saved["processes"].items()}
+        print(f"Replotting saved histograms from {outputdir / 'summary.json'}; no Parquet reads", flush=True)
+        plot_histograms(config, binning, histograms, outputdir)
+        print(f"Plots written to {outputdir.resolve()}", flush=True)
+        return report
     binning, histograms, samples = collect_histograms(config, inputdir)
     outputdir.mkdir(parents=True, exist_ok=True)
     config_output.write_text(yaml.safe_dump(resolved, sort_keys=False))
@@ -303,9 +322,12 @@ def main():
     parser.add_argument("--max-rows-per-sample", type=int,
                         help="Cap input candidate rows per sample before cuts; -1 reads all (overrides YAML)")
     parser.add_argument("--no-progress", action="store_true", help="Disable progress bars")
+    parser.add_argument("--plot-only", action="store_true",
+                        help="Replot saved summary.json without reading Parquet; use the original config and cap")
     args = parser.parse_args()
     run(args.config, args.inputdir, args.outputdir, workers=args.workers,
-        max_rows_per_sample=args.max_rows_per_sample, progress=False if args.no_progress else None)
+        max_rows_per_sample=args.max_rows_per_sample, progress=False if args.no_progress else None,
+        plot_only=args.plot_only)
 
 
 if __name__ == "__main__":

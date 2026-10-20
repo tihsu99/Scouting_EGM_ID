@@ -1,5 +1,6 @@
 """Shared CMS presentation for the Matplotlib analysis plots."""
 from pathlib import Path
+import inspect
 import math
 
 import matplotlib.pyplot as plt
@@ -43,6 +44,19 @@ def save_plot(fig, path, plot_style=None):
     text = label.pop("label")
     # Use the requested status literally, independent of the MC/data flag.
     label.setdefault("llabel", text)
+    # Older LCG mplhep accepts rlabel but has no com argument.
+    if "com" not in inspect.signature(hep.label.exp_label).parameters:
+        energy = label.pop("com")
+        if label.get("rlabel") is None:
+            right = []
+            if label.get("lumi") is not None:
+                right.append(label.get("lumi_format", "{0}").format(label["lumi"])
+                             + r" $\mathrm{fb^{-1}}$")
+            if label.get("year") is not None:
+                right.append(str(label["year"]))
+            if energy is not None:
+                right.append(f"({energy} TeV)")
+            label["rlabel"] = " ".join(right)
     for ax in fig.axes:
         hep.cms.label(text, ax=ax, **label)
     Path(path).parent.mkdir(parents=True, exist_ok=True)
