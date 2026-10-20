@@ -137,7 +137,7 @@ workflow:
         progress: true
         # Input candidates per sample, before truth/region cuts: DY and TT each
         # get an independent 6M-row cap. null or -1 reads all rows.
-        max_rows_per_sample: 6000000
+        max_rows_per_sample: 2000000
         batch_size: 200000
         # Read only the raw inputs used below; omit/null to retain every column.
         input_columns:
