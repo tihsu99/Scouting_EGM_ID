@@ -39,7 +39,7 @@ workflow:
         skip: false
         isolation_denominator: pt
         plotdir: /eos/user/t/tihsu/dataset/scouting_id/calibration_pt/EffectiveArea
-        requirement: "((status == 1) | (status == 2)) & (pt > 10) & (abs(eta) < 2.5)"
+        requirement: "((status == 1) | (status == 2)) & (pt > 10) & (abs(eta) < 2.5) & (hOverE > 0)"
         # Fit only the training partition defined by split_columns.
         calibration_train_only: true
         calibration_weight_mode: nonnegative
@@ -73,7 +73,7 @@ workflow:
                 y: "hOverE-(c_rho*`ScoutingRho.fixedGridRhoFastjetAll`/(pt*cosh(eta)))"
                 eta_bins: [0, 0.5, 1.0, 1.5, 2.0, 2.5]
                 y_type: "mean"
-                x_bins: [0, 500, 50]
+                x_bins: [0, 1000, 50]
                 fitted_func: "y = A1*x + A2"
             IE_EA:
                 x_title: "$\\rho$"
