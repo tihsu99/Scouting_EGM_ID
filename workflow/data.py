@@ -13,7 +13,7 @@ def edges(spec):
     return result
 
 
-def load_samples(inputdir, process, n_files=-1, normalization=None, columns=None):
+def load_samples(inputdir, process, n_files=-1, normalization=None):
     """Normalize selected files before candidate cuts; extensions share one denominator."""
     normalization = normalization or {}
     groups = normalization.get("groups", {})
@@ -35,7 +35,7 @@ def load_samples(inputdir, process, n_files=-1, normalization=None, columns=None
             raise FileNotFoundError(f"No Parquet files for {sample} in {inputdir}")
         parts, metadata = [], []
         for path in paths:
-            frame = pd.read_parquet(path, columns=columns)
+            frame = pd.read_parquet(path)
             frame["sample"] = sample
             parts.append(frame)
             if normalization:

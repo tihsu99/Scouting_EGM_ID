@@ -1,6 +1,5 @@
 import os
 import re
-import json
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -111,8 +110,8 @@ def fit_and_plot(args, plot_style=None):
     txt = [rf"range: {eta_min} < $|\eta|$ < {eta_max}", f"Fit: y = {expr}"]
     for n, v, e in zip(params, popt, perr):
         txt.append(f"{n} = {v:.4g} ± {e:.4g}")
-    ax.text(0.05, 0.95, "\n".join(txt), transform=ax.transAxes,
-            va="top", ha="left", fontsize="small",
+    ax.text(0.95, 0.05, "\n".join(txt), transform=ax.transAxes,
+            va="bottom", ha="right", fontsize="small",
             bbox=dict(facecolor="white", edgecolor="none", alpha=0.7))
 
     os.makedirs(os.path.join(plotdir, f"{var_name}"), exist_ok=True)
@@ -148,35 +147,14 @@ def DeriveEffectiveAreaAnalysis(**kwargs):
     os.makedirs(plotdir, exist_ok=True)
     print(f"✅ [DeriveEffectiveArea] Plot dir: {plotdir}")
 
-    weight_column = kwargs.get("calibration_weight_column")
-    if weight_column:
-        samples = {sample for item in process.values() for sample in item["samples"]}
-        if kwargs.get("normalization") or len(samples) != 1:
-            raise ValueError("calibration_weight_column requires one sample and no cross-section "
-                             "normalization; use physical normalization for sample mixtures")
-    frames, normalization = load_samples(inputdir, process, n_files, kwargs.get("normalization"),
-                                         columns=kwargs.get("input_columns"))
+    frames, _ = load_samples(inputdir, process, n_files, kwargs.get("normalization"))
     df_all = pd.concat(frames.values(), ignore_index=True)
     if requirement:
         df_all = df_all.query(requirement).copy()
     if kwargs.get("calibration_train_only", False):
         df_all, _ = event_split(df_all, kwargs.get("train_ratio", 0.8), kwargs.get("random_seed", 42))
-    if weight_column:
-        df_all["weight"] = df_all[weight_column].to_numpy(dtype=float)
     df_all["calibration_weight"] = training_weights(df_all, kwargs.get("calibration_weight_mode", "nonnegative"))
-    if not np.isfinite(df_all.calibration_weight).all() or df_all.calibration_weight.sum() <= 0:
-        raise ValueError("Calibration requires finite weights with positive total weight")
     print(f"Loaded {len(df_all):,} calibration rows")
-    with open(os.path.join(plotdir, "calibration_summary.json"), "w") as stream:
-        json.dump(dict(
-            inputdir=str(inputdir), samples=normalization, process=process, requirement=requirement,
-            isolation_denominator=kwargs.get("isolation_denominator", "unspecified"),
-            calibration_weight_column=weight_column or "weight",
-            calibration_weight_mode=kwargs.get("calibration_weight_mode", "nonnegative"),
-            calibration_train_only=kwargs.get("calibration_train_only", False),
-            train_ratio=kwargs.get("train_ratio", 0.8), random_seed=kwargs.get("random_seed", 42),
-            calibration_rows=len(df_all), sum_weights=float(df_all.calibration_weight.sum()),
-        ), stream, indent=2, allow_nan=False)
 
     # --- Config extraction ---
     corrections = []
@@ -232,7 +210,6 @@ def DeriveEffectiveAreaAnalysis(**kwargs):
         print(eta_edges, values)
         corr = Correction(
             name=var_name,
-            description=f"Fit x={x_expr}; y={y_expr}; coefficient={inspect_dict.get('coefficient', 'A1')}",
             version=1,
             inputs=[cs.Variable(name="eta", type="real", description="")],
             output=cs.Variable(name=var_name, type="real"),

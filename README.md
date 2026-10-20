@@ -315,13 +315,11 @@ The workflow implements:
   `background_stitching.pdf/json` shows per-sample and total electron pT spectra.
   The supplied QCD set starts at generator pT = 30 GeV: completeness for 10-20 GeV
   electron candidates still requires a physics check or lower generator bins.
-- **Corrections:** derive rho effective areas and residual pT scaling in eta
+- **Corrections:** derive rho effective areas and residual energy scaling in eta
   bins from the DY training partition. Relative isolation uses
-  `I/pt`, `(I-rho*EA)/pt`, and `(I-rho*EA-scale)/pt`;
-  the scale fit uses `1/pt`. The separate H/E correction retains `E = pt*cosh(eta)`.
-  E-based reference IDs use explicit `rel*Iso_E` columns with their original thresholds.
-  Raw isolation numerators are unchanged and no zero clipping is introduced.
-  Fit plots and coefficient/error summaries are retained.
+  `E = pt*cosh(eta)`, `I/E`, `(I-rho*EA)/E`, and `(I-rho*EA-scale)/E`;
+  the scale fit uses `1/E`. Raw isolation numerators are unchanged and no zero
+  clipping is introduced. Fit plots and coefficient/error summaries are retained.
 - **Training:** fit the configurable signal-to-background `(pt, eta)` reweighting
   on training events only. `reweighting.json` stores before/after histograms and
   unsupported phase space. Unsupported cells receive zero training weight, never
