@@ -1,0 +1,31 @@
+# Run with postprocess.py --steps calibrate. The fit definitions live in standard.yaml.
+base_config: standard.yaml
+signal_requirement: "((status == 1) | (status == 2)) & (pt >= 10) & (abs(eta) < 2.5)"
+calibration_samples: [DYToLL_M50]
+training_weight_mode: absolute
+# A common cross-section factor cancels in single-sample profile means/quantiles.
+# Use absolute generator weights explicitly; this is not a signed-yield prediction.
+normalization: {}
+studies: {}
+shared:
+  n_files: -1
+  n_workers: 4
+  random_seed: 42
+  train_ratio: 0.8
+workflow_overrides:
+  DeriveEffectiveArea:
+    calibration_weight_column: Generator.weight
+    # Project only the columns needed by the cuts, fits and event-level split.
+    input_columns:
+      - pt
+      - eta
+      - status
+      - hOverE
+      - ecalIso
+      - hcalIso
+      - trackIso
+      - ScoutingRho.fixedGridRhoFastjetAll
+      - Generator.weight
+      - run
+      - luminosityBlock
+      - event
