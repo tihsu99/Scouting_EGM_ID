@@ -55,6 +55,9 @@ def load_samples(inputdir, process, n_files=-1, normalization=None, columns=None
             else:
                 with path.open("rb") as source:
                     parquet = pq.ParquetFile(source)
+                    missing = set(columns or []) - set(parquet.schema_arrow.names)
+                    if missing:
+                        raise ValueError(f"Missing requested Parquet columns in {path}: {sorted(missing)}")
                     for batch in parquet.iter_batches(batch_size=min(batch_size, limit - rows_read),
                                                       columns=columns, use_threads=False):
                         batch = batch.slice(0, min(batch.num_rows, limit - rows_read))
@@ -81,6 +84,8 @@ def load_samples(inputdir, process, n_files=-1, normalization=None, columns=None
             raise ValueError(f"No candidates in {sample}")
         frames[sample] = pd.concat(parts, ignore_index=True)
         frames[sample]["sample"] = sample
+        # Preserve the input position before cuts; keep the same sorted files when reusing a split.
+        frames[sample]["sample_row"] = np.arange(len(frames[sample]), dtype=np.uint64)
         reports[sample] = {"files": [str(p) for p in read_paths], "rows": len(frames[sample])}
         if normalization:
             if sample not in group_for:
@@ -148,7 +153,8 @@ def event_split(frame, fraction=0.8, seed=42, columns=None):
     columns = columns or ["sample", "run", "luminosityBlock", "event"]
     missing = set(columns) - set(frame.columns)
     if missing:
-        raise ValueError(f"Regenerate ntuples with event identifiers; missing {sorted(missing)}")
+        raise ValueError(f"Missing split columns {sorted(missing)}; configure split_columns for "
+                         "identifiers present in the data")
     if not 0 < fraction < 1:
         raise ValueError("train_ratio must be between zero and one")
     keys = frame[columns].copy()

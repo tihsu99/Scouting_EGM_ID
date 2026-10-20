@@ -162,7 +162,8 @@ def DeriveEffectiveAreaAnalysis(**kwargs):
     if requirement:
         df_all = df_all.query(requirement).copy()
     if kwargs.get("calibration_train_only", False):
-        df_all, _ = event_split(df_all, kwargs.get("train_ratio", 0.8), kwargs.get("random_seed", 42))
+        df_all, _ = event_split(df_all, kwargs.get("train_ratio", 0.8), kwargs.get("random_seed", 42),
+                               kwargs.get("split_columns"))
     df_all["calibration_weight"] = training_weights(df_all, kwargs.get("calibration_weight_mode", "nonnegative"))
     print(f"Loaded {len(df_all):,} calibration rows")
 
