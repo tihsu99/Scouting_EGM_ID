@@ -298,26 +298,30 @@ class ValidationAnalyzer:
         return self.processes[name]["is_signal"] if self.processes else name == "signal"
 
     def _wp_label(self, source, wp):
-        return f"{source} {wp.meta.get('label', wp.name)}"
+        template = (self.plot_style or {}).get("wp_label_format", "{source} {label}")
+        return template.format(source=source, name=wp.name, label=wp.meta.get("label", wp.name))
 
     def _wp_styles(self, category=None):
         markers = ["o", "s", "^", "D", "v", "<", ">", "h", "p", "*", "X"]
+        source_markers = (self.plot_style or {}).get("source_markers", {})
         pairs = [(source, wp) for source, wps in self.wp_sources.items() for wp in wps]
         palettes = (self.plot_style or {}).get("process_palettes", {})
-        colors = palettes.get(category, OKABE_ITO)
+        palette = (self.plot_style or {}).get("wp_palette")
+        colors = palettes.get(category, palette if palette is not None else OKABE_ITO)
         if category not in palettes and category is not None and not self._is_signal(category):
             colors = [shift_hue(color) for color in colors]
-        if category in palettes and len(colors) < len(pairs):
+        configured = category in palettes or palette is not None
+        if configured and len(colors) < len(pairs):
             raise ValueError(f"Palette for {category} needs at least {len(pairs)} distinct WP colors")
-        if category in palettes and len({mc.to_rgba(color) for color in colors[:len(pairs)]}) != len(pairs):
+        if configured and len({mc.to_rgba(color) for color in colors[:len(pairs)]}) != len(pairs):
             raise ValueError(f"Palette for {category} contains duplicate WP colors")
-        return {(source, wp.name): (colors[i % len(colors)], markers[i % len(markers)])
+        return {(source, wp.name): (colors[i % len(colors)], source_markers.get(source, markers[i % len(markers)]))
                 for i, (source, wp) in enumerate(pairs)}
 
     # ---------------------------
     # 1) ROC comparison
     # ---------------------------
-    def plot_roc_by_region(self, outdir: str) -> None:
+    def plot_roc_by_region(self, outdir: str, filename_prefix: str = "") -> None:
         for reg in self.regions:
             reg_mask = self._mask_region(reg)
             block = self.df if reg_mask.all() else self.df.loc[reg_mask]
@@ -326,6 +330,8 @@ class ValidationAnalyzer:
             signal = next(name for name in categories if self._is_signal(name))
             backgrounds = [name for name in categories if not self._is_signal(name)]
             fig, ax = plt.subplots()
+            if (self.plot_style or {}).get("roc_box_aspect") is not None:
+                ax.set_box_aspect(self.plot_style["roc_box_aspect"])
             rows, annotations = [], {}
             for source, wps in self.wp_sources.items():
                 selections = [self._pass_wp(block, wp) for wp in wps]
@@ -352,7 +358,7 @@ class ValidationAnalyzer:
                             ax.plot(bkg_eff, sig_eff, marker=marker,
                                     linestyle="none", color=color, markersize=8, fillstyle="full",
                                     markerfacecolor=color, zorder=3,
-                                    label=(f"{source} {name} / {background}" if self.processes
+                                    label=(f"{self._wp_label(source, wp)} / {background}" if self.processes
                                            else source if wp is wps[0] else "_nolegend_"))
                             if not self.processes:
                                 annotations.setdefault((bkg_eff, sig_eff), []).append(name)
@@ -371,8 +377,8 @@ class ValidationAnalyzer:
                 ax.text(.04, .08, "No entries: " + ", ".join(missing), transform=ax.transAxes, fontsize="small")
             ax.margins(x=.15, y=.2)
             add_legend(ax, self.plot_style)
-            self._save(fig, os.path.join(outdir, f"roc_region-{reg}.png"))
-            pd.DataFrame(rows).to_csv(os.path.join(outdir, f"roc_region-{reg}.csv"), index=False)
+            self._save(fig, os.path.join(outdir, f"{filename_prefix}roc_region-{reg}.png"))
+            pd.DataFrame(rows).to_csv(os.path.join(outdir, f"{filename_prefix}roc_region-{reg}.csv"), index=False)
 
     # ---------------------------
     # 2) Efficiency vs variable
@@ -381,12 +387,14 @@ class ValidationAnalyzer:
                                      outdir: str, labels: Optional[Dict[str, str]] = None,
                                      xscales: Optional[Dict[str, str]] = None) -> None:
         labels = labels or {}
+        per_process = (self.plot_style or {}).get("efficiency_per_process", False)
+        x_errors = (self.plot_style or {}).get("efficiency_x_errors", not self.processes)
         for reg in self.regions:
             reg_mask = self._mask_region(reg)
             block = self.df if reg_mask.all() else self.df.loc[reg_mask]
             weights = self._effective_weights(reg_mask)
             categories = self._categories(block)
-            styles = {category: self._wp_styles(category) for category in categories}
+            styles = {category: self._wp_styles(None if per_process else category) for category in categories}
             for var in variables:
                 b_edges = edges(binning[var])
                 xscale = (xscales or {}).get(var, "linear")
@@ -420,36 +428,51 @@ class ValidationAnalyzer:
                         color, marker = styles[category][(source, name)]
                         wp = next(wp for wp in self.wp_sources[source] if wp.name == name)
                         # Offsets separate coincident entries without changing bin membership or CSV values.
-                        offset = .65 * ((index % panel_size + .5) / min(len(groups), panel_size) - .5) if self.processes else 0.
+                        offset = (.65 * ((index % panel_size + .5) / min(len(groups), panel_size) - .5)
+                                  if self.processes and not x_errors else 0.)
                         centers = (points.low + points.high) / 2 + offset * (points.high - points.low)
                         if xscale == "log":
                             centers = np.exp((np.log(points.low) + np.log(points.high))/2
                                              + offset * np.log(points.high / points.low))
                         axis.errorbar(centers, points.efficiency, yerr=points.error,
-                                      xerr=None if self.processes else [centers-points.low, points.high-centers],
+                                      xerr=[centers-points.low, points.high-centers] if x_errors else None,
                                       fmt=marker, linestyle="none", markersize=5,
                                       color=color, markerfacecolor=color,
                                       fillstyle="full",
                                       markeredgewidth=1.4, capsize=2,
-                                      label=f"{self._wp_label(source, wp)} {self._category_label(category)}")
+                                      label=(self._wp_label(source, wp) if per_process else
+                                             f"{self._wp_label(source, wp)} {self._category_label(category)}"))
                     for axis in axes:
                         axis.set(xlabel=labels.get(var, var), ylabel=ylabel, ylim=(0, 1.1), xscale=xscale)
                         axis.set_title(reg + (f" | {title}" if title else "")
-                                       + (f"\n{self.label}" if self.label else ""), fontsize="small", pad=35)
-                        if self.processes:
+                                       + (f"\n{self.label}" if self.label and not per_process else ""), fontsize="small", pad=35)
+                        if self.processes and not x_errors:
                             axis.text(0, -.10, "Markers offset within bins", transform=axis.transAxes, fontsize="x-small")
                         add_legend(axis, self.plot_style, ncol=2)
                     self._save(fig, os.path.join(outdir, filename))
 
-                draw(metrics, f"eff_{var}_region-{reg}.png")
-                for signal, category, ylabel in ((True, "signal", "Signal efficiency"), (False, "background", "Background efficiency")):
-                    selected = metrics.category.map(self._is_signal) == signal
-                    draw(metrics.loc[selected], f"{category}_{var}_region-{reg}.png", ylabel)
+                def draw_processes(data, directory="", title=""):
+                    for category in categories:
+                        draw(data.loc[data.category == category],
+                             os.path.join(directory, f"{category}_{var}_region-{reg}.png"),
+                             ylabel="Signal efficiency" if self._is_signal(category) else "Background efficiency",
+                             title=category + (f" | {title}" if title else ""))
+
+                if per_process:
+                    draw_processes(metrics)
+                else:
+                    draw(metrics, f"eff_{var}_region-{reg}.png")
+                    for signal, category, ylabel in ((True, "signal", "Signal efficiency"), (False, "background", "Background efficiency")):
+                        selected = metrics.category.map(self._is_signal) == signal
+                        draw(metrics.loc[selected], f"{category}_{var}_region-{reg}.png", ylabel)
                 if self.dedicated_wps:
                     for (source, name), points in metrics.groupby(["source", "wp"], sort=False):
                         wp = next(wp for wp in self.wp_sources[source] if wp.name == name)
-                        draw(points, f"per_wp/{source}/{name}/eff_{var}_region-{reg}.png",
-                             title=self._wp_label(source, wp))
+                        if per_process:
+                            draw_processes(points, f"per_wp/{source}/{name}", self._wp_label(source, wp))
+                        else:
+                            draw(points, f"per_wp/{source}/{name}/eff_{var}_region-{reg}.png",
+                                 title=self._wp_label(source, wp))
 
     # ---------------------------
     # 3) N−1 plots
@@ -700,7 +723,10 @@ def ValidateIDAnalysis(**kwargs):
         reg_out = os.path.join(outdir, region)
 
         # 1) ROC
-        va.plot_roc_by_region(outdir=reg_out)
+        plot_style = kwargs.get("plot_style") or {}
+        roc_out = plot_style.get("roc_outputdir", reg_out)
+        roc_prefix = plot_style.get("roc_filename_prefix", "")
+        va.plot_roc_by_region(outdir=roc_out, filename_prefix=roc_prefix)
         for label, (low, high) in pt_regions.items():
             subset = df.loc[(df.pt >= low) & (True if high is None else df.pt < high)]
             if subset.empty and not kwargs.get("allow_empty_slices", False):
@@ -708,7 +734,8 @@ def ValidateIDAnalysis(**kwargs):
             pt_label = rf"$p_T \geq {low}$ GeV" if high is None else rf"${low} \leq p_T < {high}$ GeV"
             ValidationAnalyzer(subset, wp_sources, label=pt_label + "\n" + kwargs.get("label", ""),
                                **options).plot_roc_by_region(
-                outdir=os.path.join(reg_out, label))
+                outdir=roc_out if "roc_outputdir" in plot_style else os.path.join(reg_out, label),
+                filename_prefix=f"{roc_prefix}{label}_" if "roc_outputdir" in plot_style else roc_prefix)
             del subset
 
         # 2) Efficiency vs variables (monitor_eff)

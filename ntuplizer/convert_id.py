@@ -8,7 +8,7 @@ import sys
 
 
 def normalization_metadata(path):
-    """Count all processed events, including events with no electron candidates."""
+    """Count all processed events, including events with no selected candidates."""
     import numpy as np
     import uproot
 
@@ -39,7 +39,7 @@ def inspect_parquet(path, required_columns):
     if missing:
         raise RuntimeError("Missing ID training columns: " + ", ".join(sorted(missing)))
     rows = parquet.metadata.num_rows
-    # Empty electron tables still contribute to the event normalization.
+    # Empty candidate tables still contribute to the event normalization.
     for index in {0, parquet.num_row_groups - 1}:
         parquet.read_row_group(index, columns=required_columns)
     return {"rows": rows, "columns": parquet.schema_arrow.names}

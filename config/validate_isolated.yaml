@@ -12,15 +12,15 @@ preparation:
 
 datasets:
   DY:
-    label: DY (status 1,2)
+    label: DY prompt or direct tau-decay electrons
     path: "{prepared_dir}/{region}/valid/signal.parquet"
     requirement: "(sample == 'DYToLL_M50') & ((status == 1) | (status == 2)) & (pt > 10)"
   TT:
-    label: TT (status 0,3)
+    label: TT unmatched or other nonprompt candidates
     path: "{prepared_dir}/{region}/valid/background.parquet"
     requirement: "(sample == 'TT') & ((status == 0) | (status == 3)) & (pt > 10)"
   QCD:
-    label: QCD HT (status 0,3)
+    label: QCD unmatched or other nonprompt candidates
     requirement: "((status == 0) | (status == 3)) & (pt > 10)"
     samples:
       - QCD_HT_40to70
@@ -35,7 +35,7 @@ datasets:
       - QCD_HT_1500to2000
       - QCD_HT_2000
   Zprime:
-    label: "Zprime 6 TeV (status 1,2)"
+    label: Zprime 6 TeV prompt or direct tau-decay electrons
     requirement: "((status == 1) | (status == 2)) & (pt > 10)"
     samples: [ZprimeTo2E_M6000]
 
@@ -43,11 +43,11 @@ comparisons:
   DY:
     signal: DY
     backgrounds: [TT, QCD]
-    label: "DY signal (status 1,2); TT/QCD background (status 0,3)\nUnit candidate weights; no stitching"
+    label: "DY: prompt/direct tau-decay electrons\nTT/QCD: unmatched/other nonprompt candidates"
   Zprime:
     signal: Zprime
     backgrounds: [TT, QCD]
-    label: "Zprime 6 TeV signal (status 1,2); TT/QCD background (status 0,3)\nUnit candidate weights; no stitching"
+    label: "Zprime 6 TeV: prompt/direct tau-decay electrons\nTT/QCD: unmatched/other nonprompt candidates"
 
 wp_sources:
   Iso:
@@ -62,7 +62,7 @@ wp_sources:
       reltrackIso: reltrackIso_E
     labels:
       ScoutingElectronRecommendv1: Recommend
-      ScoutingElectronCustomizev1: Customize
+      ScoutingElectronCustomizev1: AXOL1TL
 
 validation:
   unit_weights: true
@@ -113,13 +113,23 @@ validation:
 
 plot_style:
   formats: [pdf, png]
-  # Each sample uses one color family; colors follow source/WP order:
-  # Iso WP70, WP80, WP90, WP95, Default Recommend, Default Customize.
-  # All markers are solid; the same sample/WP color is used in every plot.
+  source_markers: {Iso: o, Default: s}
+  wp_label_format: "{label}"
+  efficiency_per_process: true
+  efficiency_x_errors: true
+  # Each separate efficiency plot uses the same contrasting WP colors.
+  wp_palette: ["#0072B2", "#D55E00", "#009E73", "#CC79A7", "#000000", "#E69F00"]
+  roc_box_aspect: 1
+  roc_outputdir: "{outputdir}/ROC"
+  roc_filename_prefix: "{comparison}_"
+  # ROC overlays distinguish samples with separate palettes.
+  # All palettes follow source/WP order:
+  # Iso WP70, WP80, WP90, WP95, Default Recommend, Default AXOL1TL.
+  # All markers are solid; efficiency colors are shared across samples.
   process_palettes:
-    TT: ["#123B63", "#1A527C", "#236C99", "#3185AF", "#4E9FC1", "#77B8D0"]
-    QCD: ["#7F2704", "#A63603", "#D94801", "#F16913", "#F58D3C", "#FBB16B"]
-    DY: &signal_palette ["#36450F", "#4F621A", "#697E29", "#83983A", "#9CAF50", "#B4BF69"]
+    TT: ["#0072B2", "#CC79A7", "#E69F00", "#009E73", "#000000", "#CC3311"]
+    QCD: ["#56B4E9", "#882255", "#AA4499", "#999933", "#3F51B5", "#007F7F"]
+    DY: &signal_palette ["#117733", "#44AA99", "#999999", "#661100", "#6611AA", "#AA7700"]
     Zprime: *signal_palette
   # One overview figure contains all WPs; dedicated figures contain one WP each.
   max_series_per_panel: 24

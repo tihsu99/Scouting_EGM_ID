@@ -42,6 +42,10 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
         for settings in (previous, current):
             for key in ("configuration", "training_configuration"):
                 settings[key].pop("plot_style", None)
+            for group, field in (("wp_sources", "labels"), ("datasets", "label"), ("comparisons", "label")):
+                for options in settings["configuration"].get(group, {}).values():
+                    if isinstance(options, dict):
+                        options.pop(field, None)
         if previous != current:
             raise ValueError("Configuration or WP/correction artifacts changed: use a new output directory")
     output.mkdir(parents=True, exist_ok=True)
@@ -84,10 +88,14 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
         for name, comparison in cfg["comparisons"].items():
             selected = {key: dict(datasets[key], is_signal=key == comparison["signal"])
                         for key in [comparison["signal"], *comparison["backgrounds"]]}
+            plot_style = deepcopy(cfg.get("plot_style", base.get("plot_style")) or {})
+            for key in ("roc_outputdir", "roc_filename_prefix"):
+                if key in plot_style:
+                    plot_style[key] = plot_style[key].format(comparison=name, **paths)
             ValidateIDAnalysis(inputdir=paths["prepared_dir"], outputdir=str(output / name),
                                datasets=selected, regions=regions, wp_sources=sources,
                                region_definition=base["region_definition"],
-                               plot_style=cfg.get("plot_style", base.get("plot_style")),
+                               plot_style=plot_style,
                                label=comparison.get("label", name), **cfg["validation"])
     return str(output)
 
@@ -97,7 +105,7 @@ def main():
     parser.add_argument("config")
     parser.add_argument("--outputdir", required=True)
     parser.add_argument("--inputdir", help="Independent sample folders; defaults to base_config inputdir")
-    parser.add_argument("--prepared-dir", help="Existing held-out DY/TT data; defaults to base_config storedir")
+    parser.add_argument("--prepared-dir", help="Existing held-out data; defaults to base_config storedir")
     parser.add_argument("--training-dir", help="Completed WP directory; defaults to base_config training outputdir")
     parser.add_argument("--correction-lib", help="Completed correction JSON; defaults to base_config correction_lib")
     parser.add_argument("--steps", nargs="+", choices=("prepare", "plot"), default=["prepare", "plot"])
