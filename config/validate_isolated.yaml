@@ -1,0 +1,143 @@
+# Reuse the exact feature definitions, corrections and detector regions of this training.
+# DY/TT come from its saved validation split; QCD HT and Zprime are independent samples.
+base_config: retune.yaml
+regions: [Barrel, Endcap]
+
+preparation:
+  progress: true
+  # Per-sample prefix cap, before cuts. null reads all candidates and needs more memory.
+  # This also changes the QCD bin mixture; use the same setting for comparisons.
+  max_rows_per_sample: 2000000
+  batch_size: 200000
+
+datasets:
+  DY:
+    label: DY (status 1,2)
+    path: "{prepared_dir}/{region}/valid/signal.parquet"
+    requirement: "(sample == 'DYToLL_M50') & ((status == 1) | (status == 2)) & (pt > 10)"
+  TT:
+    label: TT (status 0,3)
+    path: "{prepared_dir}/{region}/valid/background.parquet"
+    requirement: "(sample == 'TT') & ((status == 0) | (status == 3)) & (pt > 10)"
+  QCD:
+    label: QCD HT (status 0,3)
+    requirement: "((status == 0) | (status == 3)) & (pt > 10)"
+    samples:
+      - QCD_HT_40to70
+      - QCD_HT_70to100
+      - QCD_HT_100to200
+      - QCD_HT_200to400
+      - QCD_HT_400to600
+      - QCD_HT_600to800
+      - QCD_HT_800to1000
+      - QCD_HT_1000to1200
+      - QCD_HT_1200to1500
+      - QCD_HT_1500to2000
+      - QCD_HT_2000
+  Zprime:
+    label: "Zprime 6 TeV (status 1,2)"
+    requirement: "((status == 1) | (status == 2)) & (pt > 10)"
+    samples: [ZprimeTo2E_M6000]
+
+comparisons:
+  DY:
+    signal: DY
+    backgrounds: [TT, QCD]
+    label: "DY signal (status 1,2); TT/QCD background (status 0,3)\nUnit candidate weights; no stitching"
+  Zprime:
+    signal: Zprime
+    backgrounds: [TT, QCD]
+    label: "Zprime 6 TeV signal (status 1,2); TT/QCD background (status 0,3)\nUnit candidate weights; no stitching"
+
+wp_sources:
+  Iso:
+    path: "{training_dir}/{region}/CutBased_WPs_Iso_TMVA_seq.json"
+    isolation_denominator: pt
+  Default:
+    path: "{config_dir}/../ref_wp/default_{region}.json"
+    # The default JSON uses raw I/E. Never reuse the retune's raw I/pT columns.
+    variable_map:
+      relecalIso: relecalIso_E
+      relhcalIso: relhcalIso_E
+      reltrackIso: reltrackIso_E
+    labels:
+      ScoutingElectronRecommendv1: Recommend
+      ScoutingElectronCustomizev1: Customize
+
+validation:
+  unit_weights: true
+  # Project only inputs used by the isolated/default WPs, selections and monitors.
+  input_columns:
+    - sample
+    - status
+    - pt
+    - eta
+    - ScoutingRho.fixedGridRhoFastjetAll
+    - ecalIso
+    - hcalIso
+    - trackIso
+    - hOverE
+    - hOverE_calibrated
+    - sigmaIetaIeta
+    - abs_dEtaIn
+    - abs_dPhiIn
+    - abs_ooEMOop
+    - relecalIsoWithEA_calibrated
+    - relhcalIsoWithEA_calibrated
+    - reltrackIsoWithEA_calibrated
+  define_variable:
+    relecalIso_E: "ecalIso/(pt*cosh(eta))"
+    relhcalIso_E: "hcalIso/(pt*cosh(eta))"
+    reltrackIso_E: "trackIso/(pt*cosh(eta))"
+  # Connecting the discrete derived WPs is a guide, not a continuous threshold scan.
+  connect_sources: [Iso]
+  dedicated_wps: true
+  allow_empty_slices: true
+  pt_regions:
+    pt10to100: [10, 100]
+    pt100to300: [100, 300]
+    pt300to800: [300, 800]
+    pt800plus: [800, null]
+  monitor_eff:
+    pt:
+      label: '$p_T$ [GeV]'
+      xscale: log
+      binning: [10, 15, 20, 30, 50, 80, 100, 150, 200, 300, 500, 800, 1200, 2000, 3000, 5000, 10000]
+    eta:
+      label: '$\eta$'
+      binning: [-2.5, 2.5, 25]
+    ScoutingRho.fixedGridRhoFastjetAll:
+      label: '$\rho$ [GeV]'
+      binning: [0, 80, 16]
+  variables: {}
+
+plot_style:
+  formats: [pdf, png]
+  # Each sample uses one color family; colors follow source/WP order:
+  # Iso WP70, WP80, WP90, WP95, Default Recommend, Default Customize.
+  # All markers are solid; the same sample/WP color is used in every plot.
+  process_palettes:
+    TT: ["#123B63", "#1A527C", "#236C99", "#3185AF", "#4E9FC1", "#77B8D0"]
+    QCD: ["#7F2704", "#A63603", "#D94801", "#F16913", "#F58D3C", "#FBB16B"]
+    DY: &signal_palette ["#36450F", "#4F621A", "#697E29", "#83983A", "#9CAF50", "#B4BF69"]
+    Zprime: *signal_palette
+  # One overview figure contains all WPs; dedicated figures contain one WP each.
+  max_series_per_panel: 24
+  rc_params:
+    figure.figsize: [12, 9]
+    font.size: 20
+    legend.fontsize: 11
+    legend.title_fontsize: 12
+    savefig.dpi: 150
+  legend:
+    loc: upper center
+    bbox_to_anchor: [0.5, -0.15]
+    ncol: 3
+    frameon: false
+    borderaxespad: 0
+  cms_label:
+    label: Preliminary
+    data: false
+    com: 13.6
+    loc: 0
+    fontsize: 20
