@@ -6,6 +6,8 @@ from typing import Dict, List, Tuple, Optional, Iterable
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+from matplotlib.offsetbox import AnchoredOffsetbox, TextArea, VPacker
 from rich.console import Console
 from rich.table import Table
 import matplotlib.colors as mc
@@ -285,6 +287,24 @@ class ValidationAnalyzer:
     def _save(self, fig: plt.Figure, path: str) -> None:
         save_plot(fig, path, self.plot_style)
 
+    def _annotate_plot(self, ax, region, title="", context=""):
+        info = (self.plot_style or {}).get("info_box")
+        if info is not None:
+            content = [TextArea(region, textprops=info.get("heading", {}))]
+            content.extend(TextArea(text, textprops=info.get("text", {})) for text in (title, context) if text)
+            box = AnchoredOffsetbox(child=VPacker(children=content, align="left", pad=0, sep=4),
+                                   **dict({"loc": "upper left"}, **info.get("box", {})))
+            box.patch.set(**info.get("frame", {}))
+            ax.add_artist(box)
+            ax.set_title("")
+            return
+        heading = region
+        if title:
+            heading += (" | " if heading else "") + title
+        if context:
+            heading += ("\n" if heading else "") + context
+        ax.set_title(heading, fontsize="small", pad=35)
+
     def _categories(self, block):
         if self.processes is None:
             return {name: block[self.class_col].astype(int).to_numpy() == int(signal)
@@ -370,12 +390,11 @@ class ValidationAnalyzer:
                             xytext=(5, -7 if y > .85 else 5),
                             va="top" if y > .85 else "bottom", fontsize="x-small")
             ax.set(xlabel="Background efficiency", ylabel="Signal efficiency")
-            title = reg + (f"\n{self.label}" if self.label else "")
-            ax.set_title(title, fontsize="small", pad=35)
+            self._annotate_plot(ax, reg, context=self.label)
             missing = [self._category_label(name) for name, mask in categories.items() if not mask.any()]
             if missing:
                 ax.text(.04, .08, "No entries: " + ", ".join(missing), transform=ax.transAxes, fontsize="small")
-            ax.margins(x=.15, y=.2)
+            ax.margins(**(self.plot_style or {}).get("roc_margins", {"x": .15, "y": .2}))
             add_legend(ax, self.plot_style)
             self._save(fig, os.path.join(outdir, f"{filename_prefix}roc_region-{reg}.png"))
             pd.DataFrame(rows).to_csv(os.path.join(outdir, f"{filename_prefix}roc_region-{reg}.csv"), index=False)
@@ -387,7 +406,9 @@ class ValidationAnalyzer:
                                      outdir: str, labels: Optional[Dict[str, str]] = None,
                                      xscales: Optional[Dict[str, str]] = None) -> None:
         labels = labels or {}
-        per_process = (self.plot_style or {}).get("efficiency_per_process", False)
+        overlay_signal = (self.plot_style or {}).get("efficiency_overlay_signal", False)
+        per_process = (self.plot_style or {}).get("efficiency_per_process", False) or overlay_signal
+        line_styles = (self.plot_style or {}).get("efficiency_linestyles", SB_STYLES if overlay_signal else {})
         x_errors = (self.plot_style or {}).get("efficiency_x_errors", not self.processes)
         for reg in self.regions:
             reg_mask = self._mask_region(reg)
@@ -427,6 +448,7 @@ class ValidationAnalyzer:
                         axis = axes[index // panel_size]
                         color, marker = styles[category][(source, name)]
                         wp = next(wp for wp in self.wp_sources[source] if wp.name == name)
+                        role = "signal" if self._is_signal(category) else "background"
                         # Offsets separate coincident entries without changing bin membership or CSV values.
                         offset = (.65 * ((index % panel_size + .5) / min(len(groups), panel_size) - .5)
                                   if self.processes and not x_errors else 0.)
@@ -436,27 +458,48 @@ class ValidationAnalyzer:
                                              + offset * np.log(points.high / points.low))
                         axis.errorbar(centers, points.efficiency, yerr=points.error,
                                       xerr=[centers-points.low, points.high-centers] if x_errors else None,
-                                      fmt=marker, linestyle="none", markersize=5,
+                                      fmt=marker, linestyle=line_styles.get(role, "none"), markersize=5,
                                       color=color, markerfacecolor=color,
                                       fillstyle="full",
                                       markeredgewidth=1.4, capsize=2,
                                       label=(self._wp_label(source, wp) if per_process else
                                              f"{self._wp_label(source, wp)} {self._category_label(category)}"))
                     for axis in axes:
-                        axis.set(xlabel=labels.get(var, var), ylabel=ylabel, ylim=(0, 1.1), xscale=xscale)
-                        axis.set_title(reg + (f" | {title}" if title else "")
-                                       + (f"\n{self.label}" if self.label and not per_process else ""), fontsize="small", pad=35)
+                        axis.set(xlabel=labels.get(var, var), ylabel=ylabel,
+                                 ylim=(self.plot_style or {}).get("efficiency_ylim", (0, 1.1)), xscale=xscale)
+                        self._annotate_plot(axis, reg, title=title, context=self.label if not per_process else "")
                         if self.processes and not x_errors:
                             axis.text(0, -.10, "Markers offset within bins", transform=axis.transAxes, fontsize="x-small")
-                        add_legend(axis, self.plot_style, ncol=2)
+                        if overlay_signal:
+                            handles = {}
+                            for container in axis.containers:
+                                point = container.lines[0]
+                                name = container.get_label()
+                                handles[name] = Line2D([], [], color=point.get_color(), marker=point.get_marker(),
+                                                       linestyle="none", label=name)
+                            role_handles = []
+                            for category in data.category.unique():
+                                role = "signal" if self._is_signal(category) else "background"
+                                role_handles.append(Line2D([], [], color="black", linestyle=line_styles.get(role, "none"),
+                                                           label=f"{category} {role}"))
+                            add_legend(axis, self.plot_style, handles=[*handles.values(), *role_handles], ncol=2)
+                        else:
+                            add_legend(axis, self.plot_style, ncol=2)
                     self._save(fig, os.path.join(outdir, filename))
 
                 def draw_processes(data, directory="", title=""):
+                    signal = next(category for category in categories if self._is_signal(category))
                     for category in categories:
-                        draw(data.loc[data.category == category],
-                             os.path.join(directory, f"{category}_{var}_region-{reg}.png"),
-                             ylabel="Signal efficiency" if self._is_signal(category) else "Background efficiency",
-                             title=category + (f" | {title}" if title else ""))
+                        if overlay_signal and self._is_signal(category):
+                            continue
+                        selected = [signal, category] if overlay_signal else [category]
+                        name = f"{signal}_vs_{category}" if overlay_signal else category
+                        ylabel = "Efficiency" if overlay_signal else (
+                            "Signal efficiency" if self._is_signal(category) else "Background efficiency")
+                        heading = f"{signal} + {category}" if overlay_signal else category
+                        draw(data.loc[data.category.isin(selected)],
+                             os.path.join(directory, f"{name}_{var}_region-{reg}.png"), ylabel=ylabel,
+                             title=heading + (f" | {title}" if title else ""))
 
                 if per_process:
                     draw_processes(metrics)
