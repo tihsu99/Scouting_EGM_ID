@@ -57,16 +57,23 @@ def root_url(value):
 
 def required_branches(workflow):
     # status is created by id_ntupler.py, not stored by CMSSW.
-    branches = {"run", "luminosityBlock", "event", "nScoutingElectron", "nGenPart"}
+    collection, fields = candidate_fields(workflow)
+    branches = {"run", "luminosityBlock", "event", "n" + collection, "nGenPart"}
     branches.update(workflow.get("ntupler_store_event_scalars", []))
-    branches.update("ScoutingElectron_" + name for name in
-                    workflow["ntupler_store_values_for_electron"] if name != "status")
-    branches.update("ScoutingElectron_" + name for name in ("pt", "eta", "phi", "m"))
+    branches.update(collection + "_" + name for name in fields if name not in ("status", "gen_idx", "gen_dR"))
+    branches.update(collection + "_" + name for name in ("pt", "eta", "phi", "m"))
     branches.update("GenPart_" + name for name in
                     ("pt", "eta", "phi", "mass", "pdgId", "status", "statusFlags", "genPartIdxMother"))
     for collection, names in workflow["ntupler_store_values_for_event"].items():
         branches.update(collection + "_" + name for name in names)
     return sorted(branches)
+
+
+def candidate_fields(workflow):
+    collection = workflow.get("candidate_collection", "ScoutingElectron")
+    if collection not in ("ScoutingElectron", "ScoutingPhoton"):
+        raise ValueError(f"Unsupported candidate_collection: {collection}")
+    return collection, workflow["ntupler_store_values_for_" + collection.removeprefix("Scouting").lower()]
 
 
 def discover_files(sample, base):
@@ -135,7 +142,7 @@ def prepare(config_path, farm, selected=None, max_files=None, max_events=None):
         conversion = {
             "python": settings.get("python", "python3"), "workers": workers,
             "chunk_size": positive(settings.get("chunk_size", 15000), "conversion.chunk_size"),
-            "required_columns": list(workflow["ntupler_store_values_for_electron"]) + workflow.get("ntupler_store_event_scalars", []) + [
+            "required_columns": list(candidate_fields(workflow)[1]) + workflow.get("ntupler_store_event_scalars", []) + [
                 collection + "." + field
                 for collection, fields in workflow["ntupler_store_values_for_event"].items()
                 for field in fields

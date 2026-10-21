@@ -109,8 +109,9 @@ def run(config_path, inputdir, outputdir, steps=None, studies=None, manifest=Non
             stage("TrainCutBasedID_TMVA", inputdir=str(data_dir), outputdir=str(train_dir))
         wp_sources = {f"Optimized({tag})": str(train_dir / "{region}" / f"CutBased_WPs_{tag}_TMVA_seq.json")
                       for tag in workflow["TrainCutBasedID_TMVA"]["variables"]}
-        reference = (config_path.parent / cfg["default_wp"]).resolve()
-        wp_sources["Default"] = str(reference)
+        if cfg.get("default_wp"):
+            reference = (config_path.parent / cfg["default_wp"]).resolve()
+            wp_sources["Default"] = str(reference)
         if "validate" in steps:
             stage("ValidateID", inputdir=str(data_dir), outputdir=str(study_dir / "performance"), wp_sources=wp_sources)
         if "highpt" in steps:

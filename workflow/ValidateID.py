@@ -623,7 +623,9 @@ def ValidateIDAnalysis(**kwargs):
         parts = []
         for name, spec in inputs.items():
             paths = spec["path"] if isinstance(spec["path"], (list, tuple)) else [spec["path"]]
-            frame = pd.read_parquet([path.format(region=region) for path in paths],
+            paths = [path.format(region=region) for path in paths]
+            # Older PyArrow cannot infer the filesystem from a one-item path list.
+            frame = pd.read_parquet(paths[0] if len(paths) == 1 else paths,
                                     columns=kwargs.get("input_columns"))
             if spec.get("requirement"):
                 frame = frame.query(spec["requirement"])

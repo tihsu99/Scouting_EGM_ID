@@ -26,10 +26,15 @@ def is_valid_root_file_xrootd(path):
 
 def match_electron_truth(electrons, gen_particles, max_dr):
     """Label nearest final-state electrons: 0 unmatched, 1 prompt, 2 tau, 3 other."""
-    gen_ele = gen_particles[(abs(gen_particles.pdgId) == 11) & (gen_particles.status == 1)]
+    return match_candidate_truth(electrons, gen_particles, max_dr)
+
+
+def match_candidate_truth(candidates, gen_particles, max_dr, pdg_id=11, max_relative_pt=None):
+    """Match final-state particles; optional relative pT uses generator pT."""
+    gen_ele = gen_particles[(abs(gen_particles.pdgId) == pdg_id) & (gen_particles.status == 1)]
     reco_momentum = ak.zip({
-        "pt": electrons.pt, "eta": electrons.eta,
-        "phi": electrons.phi, "mass": electrons.m,
+        "pt": candidates.pt, "eta": candidates.eta,
+        "phi": candidates.phi, "mass": candidates.m,
     }, with_name="Momentum4D")
     gen_momentum = ak.zip({
         "pt": gen_ele.pt, "eta": gen_ele.eta,
@@ -37,6 +42,9 @@ def match_electron_truth(electrons, gen_particles, max_dr):
     }, with_name="Momentum4D")
     pairs = ak.cartesian({"ele": reco_momentum, "gen": gen_momentum}, nested=True)
     dr = pairs.ele.deltaR(pairs.gen)
+    if max_relative_pt is not None:
+        compatible = (pairs.gen.pt > 0) & (abs(pairs.ele.pt - pairs.gen.pt) <= max_relative_pt * pairs.gen.pt)
+        dr = ak.mask(dr, compatible)
     closest_idx = ak.argmin(dr, axis=2)
     closest_dr = ak.min(dr, axis=2)
     matched = ak.fill_none(closest_dr <= max_dr, False)
@@ -46,21 +54,30 @@ def match_electron_truth(electrons, gen_particles, max_dr):
     prompt = (flags & (1 << 0)) != 0
     from_tau = (flags & (1 << 4)) != 0
     category = ak.where(from_tau, 2, ak.where(prompt, 1, 3))
-    electrons["status"] = ak.values_astype(ak.where(matched, category, 0), np.int32)
-    electrons["gen_idx"] = closest_idx
-    electrons["gen_dR"] = closest_dr
-    return electrons
+    candidates["status"] = ak.values_astype(ak.where(matched, category, 0), np.int32)
+    candidates["gen_idx"] = closest_idx
+    candidates["gen_dR"] = closest_dr
+    return candidates
 
 
 class Ntupler(processor.ProcessorABC):
     def __init__(self, config):
         self.config = config
-        self.store_values_electron = config["ntupler_store_values_for_electron"]
+        self.collection = config.get("candidate_collection", "ScoutingElectron")
+        pdg_ids = {"ScoutingElectron": 11, "ScoutingPhoton": 22}
+        if self.collection not in pdg_ids:
+            raise ValueError(f"Unsupported candidate_collection: {self.collection}")
+        self.pdg_id = pdg_ids[self.collection]
+        key = "ntupler_store_values_for_" + self.collection.removeprefix("Scouting").lower()
+        self.store_values_candidate = config[key]
         self.store_values_event = config["ntupler_store_values_for_event"]
         self.store_event_scalars = config.get("ntupler_store_event_scalars", [])
         self.gen_matching_dR = config["gen_matching_dR"]
+        self.gen_matching_relative_pt = config.get("gen_matching_relative_pt")
+        if self.gen_matching_dR <= 0 or (self.gen_matching_relative_pt is not None and self.gen_matching_relative_pt <= 0):
+            raise ValueError("Generator matching thresholds must be positive")
 
-        self.store_values = deepcopy(self.store_values_electron)
+        self.store_values = deepcopy(self.store_values_candidate)
         self.store_values.extend(self.store_event_scalars)
 
         for collection, branches in self.store_values_event.items():
@@ -79,22 +96,23 @@ class Ntupler(processor.ProcessorABC):
     def process(self, events):
         output = self.accumulator.identity()
 
-        electrons = match_electron_truth(events.ScoutingElectron, events.GenPart,
-                                         self.gen_matching_dR)
+        candidates = match_candidate_truth(getattr(events, self.collection), events.GenPart,
+                                           self.gen_matching_dR, self.pdg_id,
+                                           self.gen_matching_relative_pt)
 
-        for key in self.store_values_electron:
-            output[key] += processor.column_accumulator(ak.to_numpy(ak.flatten(electrons[key])))
+        for key in self.store_values_candidate:
+            output[key] += processor.column_accumulator(ak.to_numpy(ak.flatten(candidates[key])))
 
         for key in self.store_event_scalars:
-            value = ak.broadcast_arrays(electrons.pt, getattr(events, key))[1]
+            value = ak.broadcast_arrays(candidates.pt, getattr(events, key))[1]
             output[key] += processor.column_accumulator(ak.to_numpy(ak.flatten(value)))
 
         for collection, branches in self.store_values_event.items():
             obj = getattr(events, collection)
             for branch in branches:
                 value = getattr(obj, branch)  # shape: (n_events,)
-                # Broadcast to match electrons per event
-                broadcasted = ak.broadcast_arrays(electrons.pt, value)[1]
+                # Broadcast to match candidates per event.
+                broadcasted = ak.broadcast_arrays(candidates.pt, value)[1]
                 output[f"{collection}.{branch}"] += processor.column_accumulator(ak.to_numpy(ak.flatten(broadcasted)))
 
 
