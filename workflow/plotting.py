@@ -107,7 +107,8 @@ def save_plot(fig, path, plot_style=None):
                 if ax.get_yscale() == "linear" and math.isfinite(ax.dataLim.y1):
                     ax.set_ylim(low, max(high, low + (ax.dataLim.y1 - low) / fraction))
     for ax in fig.axes:
-        hep.cms.label(text, ax=ax, **label)
+        if ax.get_label() != "_secondary_axis":
+            hep.cms.label(text, ax=ax, **label)
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     formats = settings.get("formats")
     paths = [Path(path).with_suffix(f".{fmt}") for fmt in formats] if formats else [path]

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Overlay unweighted candidate shapes from merged Parquet samples."""
+"""Inspect candidate shapes or receipt-normalized spectra from merged Parquet."""
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
@@ -16,7 +16,7 @@ import pyarrow.parquet as pq
 from tqdm import tqdm
 import yaml
 
-from workflow.data import edges
+from workflow.data import edges, sample_normalizations
 from workflow.plotting import add_legend, configure_style, save_plot
 
 
@@ -35,8 +35,25 @@ def referenced_columns(config):
     expressions.append(config.get("requirement") or "")
     expressions.extend(spec.get("requirement") or "" for spec in config["region_definition"].values())
     expressions.extend(spec.get("expression") or name for name, spec in config["inspect_variable"].items())
-    return {quoted or name for quoted, name in
-            re.findall(r"`([^`]+)`|([A-Za-z_]\w*)", " ".join(expressions))}
+    columns = {quoted or name for quoted, name in
+               re.findall(r"`([^`]+)`|([A-Za-z_]\w*)", " ".join(expressions))}
+    if config.get("normalization"):
+        columns.add(config["normalization"].get("weight_column", "Generator.weight"))
+    return columns
+
+
+def empty_histogram(bins, weighted):
+    hist = dict(counts=np.zeros(len(bins) - 1, dtype=np.int64),
+                rows=0, underflow=0, overflow=0, nonfinite=0)
+    if weighted:
+        hist.update(sumw=np.zeros(len(bins) - 1), sumw2=np.zeros(len(bins) - 1),
+                    underflow_sumw=0., overflow_sumw=0., nonfinite_sumw=0.)
+    return hist
+
+
+def total_histogram(processes):
+    return {key: sum(hist[key] for hist in processes.values())
+            for key in next(iter(processes.values()))}
 
 
 def collect_histograms(config, inputdir):
@@ -53,14 +70,18 @@ def collect_histograms(config, inputdir):
     if not isinstance(workers, int) or isinstance(workers, bool) or workers < 1:
         raise ValueError("workers must be a positive integer")
     limit = row_limit(config)
+    normalization = config.get("normalization") or {}
+    if normalization and limit is not None:
+        raise ValueError("max_rows_per_sample cannot be combined with cross-section normalization; "
+                         "use -1 to retain the receipt's full event denominator")
+    weight_column = normalization.get("weight_column", "Generator.weight")
     columns = referenced_columns(config)
     show_progress = config.get("progress", True)
     binning = {name: edges(spec["binning"]) for name, spec in variables.items()}
     histograms = {
         region: {
             var: {
-                process: dict(counts=np.zeros(len(bins) - 1, dtype=np.int64),
-                              rows=0, underflow=0, overflow=0, nonfinite=0)
+                process: empty_histogram(bins, normalization)
                 for process in processes
             }
             for var, bins in binning.items()
@@ -84,6 +105,7 @@ def collect_histograms(config, inputdir):
 
     jobs = [(process, sample, paths) for process, samples in files.items()
             for sample, paths in samples.items()]
+    normalized = sample_normalizations({sample: paths for _, sample, paths in jobs}, normalization) if normalization else {}
     available = {}
     with tqdm(total=sum(len(paths) for _, _, paths in jobs), desc="Scanning Parquet",
               unit="file", disable=not show_progress, dynamic_ncols=True) as progress:
@@ -96,12 +118,13 @@ def collect_histograms(config, inputdir):
     lock, stop = Lock(), Event()
 
     def collect_sample(process, sample, paths, progress):
-        local = {region: {var: dict(counts=np.zeros(len(bins) - 1, dtype=np.int64),
-                                   rows=0, underflow=0, overflow=0, nonfinite=0)
+        local = {region: {var: empty_histogram(bins, normalization)
                           for var, bins in binning.items()} for region in regions}
         report = dict(process=process, files=[str(path.resolve()) for path in paths],
                       files_read=[], available_rows=available[sample], rows=0,
                       selected_rows=0, regions=dict.fromkeys(regions, 0))
+        if normalization:
+            report["normalization"] = normalized[sample]
         target = min(available[sample], limit) if limit is not None else available[sample]
         for path in paths:
             if report["rows"] >= target or stop.is_set():
@@ -109,6 +132,8 @@ def collect_histograms(config, inputdir):
             with path.open("rb") as source:
                 parquet = pq.ParquetFile(source)
                 selected_columns = [name for name in parquet.schema_arrow.names if name in columns]
+                if normalization and weight_column not in selected_columns:
+                    raise ValueError(f"Missing generator weight column {weight_column}: {path}")
                 report["files_read"].append(str(path.resolve()))
                 # Each worker owns its I/O and histograms; avoid nested Arrow thread pools.
                 for batch in parquet.iter_batches(batch_size=min(batch_size, target - report["rows"]),
@@ -118,6 +143,10 @@ def collect_histograms(config, inputdir):
                     batch = batch.slice(0, min(batch.num_rows, target - report["rows"]))
                     frame = batch.to_pandas(use_threads=False)
                     report["rows"] += len(frame)
+                    if normalization:
+                        weights = frame[weight_column].to_numpy(dtype=float) * normalized[sample]["normalization_factor"]
+                        if not np.isfinite(weights).all():
+                            raise ValueError(f"Non-finite weights in {sample}")
                     for name, expression in config.get("define_variable", {}).items():
                         frame[name] = frame.eval(expression)
                     if config.get("requirement"):
@@ -127,6 +156,8 @@ def collect_histograms(config, inputdir):
                         requirement = region_spec.get("requirement")
                         selected = frame.query(requirement) if requirement else frame
                         report["regions"][region] += len(selected)
+                        if normalization:
+                            weights = selected[weight_column].to_numpy(dtype=float) * normalized[sample]["normalization_factor"]
                         for var, spec in variables.items():
                             expression = spec.get("expression")
                             values = (selected.eval(expression) if expression else selected[var])
@@ -136,6 +167,12 @@ def collect_histograms(config, inputdir):
                             hist = local[region][var]
                             hist["rows"] += len(values)
                             hist["nonfinite"] += int((~finite).sum())
+                            if normalization:
+                                hist["nonfinite_sumw"] += float(weights[~finite].sum())
+                                hist["underflow_sumw"] += float(weights[finite & (values < bins[0])].sum())
+                                hist["overflow_sumw"] += float(weights[finite & (values > bins[-1])].sum())
+                                hist["sumw"] += np.histogram(values[finite], bins=bins, weights=weights[finite])[0]
+                                hist["sumw2"] += np.histogram(values[finite], bins=bins, weights=np.square(weights[finite]))[0]
                             values = values[finite]
                             hist["underflow"] += int((values < bins[0]).sum())
                             hist["overflow"] += int((values > bins[-1]).sum())
@@ -173,10 +210,23 @@ def collect_histograms(config, inputdir):
     return binning, histograms, samples_report
 
 
-def density(hist, bins):
-    counts = np.asarray(hist["counts"], dtype=float)
+def density(hist, bins, mode="unit_area"):
+    counts = np.asarray(hist.get("sumw", hist["counts"]), dtype=float)
+    if mode == "yield_density":
+        return counts / np.diff(bins)
+    if mode != "unit_area":
+        raise ValueError(f"Unknown histogram_normalization: {mode}")
     total = counts.sum()
     return counts / (total * np.diff(bins)) if total else np.zeros_like(counts)
+
+
+def plot_kind(config):
+    kind = config.get("plot_kind", "overlay")
+    if kind not in ("overlay", "stacked"):
+        raise ValueError(f"Unknown plot_kind: {kind}")
+    if kind == "stacked" and config.get("histogram_normalization", "unit_area") != "yield_density":
+        raise ValueError("Stacked contributions require histogram_normalization: yield_density")
+    return kind
 
 
 def plot_histograms(config, binning, histograms, outputdir):
@@ -187,6 +237,9 @@ def plot_histograms(config, binning, histograms, outputdir):
             for scale in config["inspect_variable"][var].get(
                 "yscales", config.get("yscales", ["linear", "log"]))]
     limit = row_limit(config)
+    mode = config.get("histogram_normalization", "unit_area")
+    stacked = plot_kind(config) == "stacked"
+    weighted = bool(config.get("normalization"))
     with tqdm(total=len(jobs) * len(formats), desc="Saving plots", unit="file",
               disable=not config.get("progress", True), dynamic_ncols=True) as progress:
         # Matplotlib stays on the main thread; both formats share one figure.
@@ -194,30 +247,49 @@ def plot_histograms(config, binning, histograms, outputdir):
             region_spec = config["region_definition"][region]
             spec, bins = config["inspect_variable"][var], binning[var]
             fig, ax = plt.subplots()
-            positive = []
-            for process, hist in histograms[region][var].items():
-                series = config["process"][process]
-                values = density(hist, bins)
+            positive, negative = [], []
+            cumulative = np.zeros(len(bins) - 1)
+            curves = [(name, config["process"][name], hist) for name, hist in histograms[region][var].items()]
+            component_count = len(curves)
+            if config.get("total"):
+                curves.append(("Total", config["total"], total_histogram(histograms[region][var])))
+            for index, (name, series, hist) in enumerate(curves):
+                values = density(hist, bins, mode)
                 positive.extend(values[values > 0])
+                negative.extend(values[values < 0])
                 count = int(hist["counts"].sum())
                 fraction = count / hist["rows"] if hist["rows"] else 0.0
-                label = (f'{series.get("label", process)} '
+                label = (f'{series.get("label", name)} '
                          f'(N={hist["rows"]:,}; shown {fraction:.1%})')
                 linestyle = series.get("linestyle", "-")
                 if isinstance(linestyle, list):
                     linestyle = tuple(linestyle)
-                ax.stairs(np.where(values > 0, values, np.nan) if scale == "log" else values,
-                          bins, baseline=None, label=label, color=series.get("color"),
-                          linestyle=linestyle, linewidth=1.8)
-            ax.set(xlabel=spec.get("label", var), ylabel="Unit-area density",
+                if stacked and index < component_count:
+                    if np.any(values < 0):
+                        plt.close(fig)
+                        raise ValueError("Stacked plots require nonnegative bin yields; use plot_kind: overlay for signed contributions")
+                    baseline = cumulative.copy()
+                    cumulative = baseline + values
+                    ax.stairs(cumulative, bins, baseline=baseline, fill=True,
+                              label=label, facecolor=series.get("color"), edgecolor="white", linewidth=0.3)
+                else:
+                    ax.stairs(np.where(values > 0, values, np.nan) if scale == "log" else values,
+                              bins, baseline=None, label=label, color=series.get("color"),
+                              linestyle=linestyle, linewidth=series.get("linewidth", 1.8))
+            if stacked:
+                positive = cumulative[cumulative > 0].tolist()
+            ylabel = "Unit-area density"
+            if mode == "yield_density":
+                ylabel = "Weighted candidates / bin width" if weighted else "Candidates / bin width"
+            ax.set(xlabel=spec.get("label", var), ylabel=spec.get("ylabel", ylabel),
                    xlim=(bins[0], bins[-1]), xscale=spec.get("xscale", "linear"), yscale=scale)
             if scale == "linear":
-                ax.set_ylim(0, max(positive) * 1.8 if positive else 1)
+                ax.set_ylim(min(negative) * 1.2 if negative else 0, max(positive) * 1.8 if positive else 1)
             else:
                 ax.set_ylim(min(positive) * 0.5 if positive else 1e-6,
                             max(positive) * 15 if positive else 1)
-            if not positive:
-                ax.text(0.5, 0.4, "No candidates in plotted range",
+            if not positive and (scale == "log" or not negative):
+                ax.text(0.5, 0.4, "No positive bins in plotted range" if weighted else "No candidates in plotted range",
                         transform=ax.transAxes, ha="center", fontsize=14)
             if spec.get("tick_labels"):
                 ticks = spec["tick_labels"]
@@ -228,8 +300,19 @@ def plot_histograms(config, binning, histograms, outputdir):
             ax.text(0.02, 0.97, f"{title}\n{selection}", transform=ax.transAxes,
                     ha="left", va="top", fontsize=12)
             add_legend(ax, style, title="Candidates after selection")
-            note = ("Unweighted candidates; each curve normalized within the shown range.\n"
-                    "Sample bins combined by row count; no cross-section weighting.")
+            if weighted:
+                lumi = config["normalization"].get("luminosity_pb", 1.0)
+                note = (rf"Cross-section and generator weights; $L={lumi:g}$ pb$^{{-1}}$. "
+                        "Denominators from preselection event receipts.\n")
+                note += ("Each curve normalized within the shown range." if mode == "unit_area" else
+                         "Bin yields divided by bin width; relative sample normalization preserved.")
+                if scale == "log" and negative:
+                    note += " Nonpositive bins omitted on log axes."
+            else:
+                note = ("Unweighted candidates; each curve normalized within the shown range.\n"
+                        "Sample bins combined by row count; no cross-section weighting.")
+                if mode == "yield_density":
+                    note = "Unweighted candidate counts divided by bin width; no cross-section weighting."
             if limit is not None:
                 note += f"\nInput limited to first {limit:,} candidate rows/sample before cuts (not random)."
             ax.annotate(note, xy=(0, 0), xycoords="axes fraction", xytext=(0, -60),
@@ -243,13 +326,41 @@ def plot_histograms(config, binning, histograms, outputdir):
                 progress.update()
 
 
+def load_config(config_path):
+    """Apply top-level overrides from one base YAML and resolve normalization at source."""
+    path = Path(config_path).resolve()
+    overrides = yaml.safe_load(path.read_text())
+    base_path = path.parent / overrides.pop("base_config") if "base_config" in overrides else None
+    config = yaml.safe_load(base_path.read_text()) if base_path else {}
+    if "base_config" in config:
+        raise ValueError("Inspection supports one base_config level")
+    norm_parent = path.parent
+    if base_path and "normalization_config" not in overrides:
+        norm_parent = base_path.parent
+    config.update(overrides)
+    if "normalization_config" in config:
+        if config.get("normalization"):
+            raise ValueError("Use normalization or normalization_config, not both")
+        source = (norm_parent / config.pop("normalization_config")).resolve()
+        config["normalization"] = yaml.safe_load(source.read_text())["normalization"]
+        if not config["normalization"]:
+            raise ValueError(f"Missing normalization settings in {source}")
+    return config
+
+
 def run(config_path, inputdir, outputdir, workers=None, max_rows_per_sample=None, progress=None,
         plot_only=False):
-    config = yaml.safe_load(Path(config_path).read_text())
+    config = load_config(config_path)
+    plot_kind(config)
     for name, value in dict(workers=workers, max_rows_per_sample=max_rows_per_sample,
                             progress=progress).items():
         if value is not None:
             config[name] = value
+    mode = config.get("histogram_normalization", "unit_area")
+    if mode not in ("unit_area", "yield_density"):
+        raise ValueError(f"Unknown histogram_normalization: {mode}")
+    if config.get("normalization") and row_limit(config) is not None:
+        raise ValueError("max_rows_per_sample cannot be combined with cross-section normalization; use -1")
     for name, spec in config["inspect_variable"].items():
         scales = spec.get("yscales", config.get("yscales", ["linear", "log"]))
         if not scales or set(scales) - {"linear", "log"}:
@@ -268,7 +379,7 @@ def run(config_path, inputdir, outputdir, workers=None, max_rows_per_sample=None
         comparable = []
         for settings in (previous["config"], config):
             selection = {key: value for key, value in settings.items()
-                         if key not in ("workers", "progress", "batch_size", "max_rows_per_sample")}
+                         if key not in ("workers", "progress", "batch_size", "max_rows_per_sample", "plot_kind")}
             selection["max_rows_per_sample"] = row_limit(settings)
             comparable.append(selection)
         if previous["inputdir"] != resolved["inputdir"] or comparable[0] != comparable[1]:
@@ -285,10 +396,13 @@ def run(config_path, inputdir, outputdir, workers=None, max_rows_per_sample=None
                 if not np.array_equal(binning[var], edges(config["inspect_variable"][var]["binning"])):
                     raise ValueError(f"Saved binning does not match configuration: {region}/{var}")
                 histograms[region][var] = {
-                    name: dict(hist, counts=np.asarray(hist["counts"], dtype=np.int64))
+                    name: {key: np.asarray(value, dtype=np.int64 if key == "counts" else float)
+                           if key in ("counts", "sumw", "sumw2") else value
+                           for key, value in hist.items() if key != "density"}
                     for name, hist in saved["processes"].items()}
         print(f"Replotting saved histograms from {outputdir / 'summary.json'}; no Parquet reads", flush=True)
         plot_histograms(config, binning, histograms, outputdir)
+        config_output.write_text(yaml.safe_dump(resolved, sort_keys=False))
         print(f"Plots written to {outputdir.resolve()}", flush=True)
         return report
     binning, histograms, samples = collect_histograms(config, inputdir)
@@ -299,14 +413,28 @@ def run(config_path, inputdir, outputdir, workers=None, max_rows_per_sample=None
                   sampling=dict(max_rows_per_sample=row_limit(config),
                                 method="first rows in sorted file order, before selection; not random"),
                   samples=samples, histograms={})
+    if config.get("normalization"):
+        weight_column = config["normalization"].get("weight_column", "Generator.weight")
+        report["weighting"] = f"{weight_column} * cross_section_pb * luminosity_pb / preselection sum_genweight"
+        report["sampling"]["method"] = "all input candidate rows; denominators from included event receipts"
+        report["sumw2_definition"] = "sum of squared candidate weights; not an event-cluster variance"
+    if mode == "yield_density":
+        report["normalization"] = "bin yields divided by bin width; no per-curve unit-area scaling"
+
+    def serialize_histogram(hist, bins):
+        saved = {key: value.tolist() if isinstance(value, np.ndarray) else value for key, value in hist.items()}
+        saved["density"] = density(hist, bins, mode).tolist()
+        return saved
+
     for region, variables in histograms.items():
         report["histograms"][region] = {}
         for var, processes in variables.items():
             report["histograms"][region][var] = dict(
                 edges=binning[var].tolist(),
-                processes={name: dict(hist, counts=hist["counts"].tolist(),
-                                      density=density(hist, binning[var]).tolist())
+                processes={name: serialize_histogram(hist, binning[var])
                            for name, hist in processes.items()})
+            if config.get("total"):
+                report["histograms"][region][var]["total"] = serialize_histogram(total_histogram(processes), binning[var])
     (outputdir / "summary.json").write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
     plot_histograms(config, binning, histograms, outputdir)
     print(f"Plots and summary written to {outputdir.resolve()}", flush=True)

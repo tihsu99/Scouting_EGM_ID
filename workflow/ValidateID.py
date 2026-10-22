@@ -15,6 +15,7 @@ from workflow.data import edges, efficiency_stats, kinematic_weights
 from workflow.working_points import WP, load_tmva_wp_file, load_configured_wps, pass_fixed_cuts, print_id_table
 from workflow.InspectDistribution import define_variables
 from workflow.plotting import add_legend, configure_style, save_plot, series_panels, composition_panel
+from workflow.cut_plots import plot_cut_distribution
 
 def lighten_color(color, amount=0.3):
     """
@@ -266,7 +267,7 @@ class ValidationAnalyzer:
     def _save(self, fig: plt.Figure, path: str) -> None:
         save_plot(fig, path, self.plot_style)
 
-    def _annotate_plot(self, ax, region, title="", context="", categories=None):
+    def _annotate_plot(self, ax, region, title="", context="", categories=None, show_composition=True):
         info = (self.plot_style or {}).get("info_box")
         if info is not None:
             content = [TextArea(region, textprops=info.get("heading", {}))]
@@ -284,7 +285,7 @@ class ValidationAnalyzer:
             if context:
                 heading += ("\n" if heading else "") + context
             ax.set_title(heading, fontsize="small", pad=35)
-        if region in self.composition:
+        if show_composition and region in self.composition:
             samples = {name: sample for name, sample in self.composition[region].items()
                        if categories is None or name in categories}
             settings = self.plot_style["composition"]
@@ -515,8 +516,30 @@ class ValidationAnalyzer:
                             draw(points, f"per_wp/{source}/{name}/eff_{var}_region-{reg}.png",
                                  title=self._wp_label(source, wp))
 
+    def plot_cut_distributions(self, variables, outdir):
+        """Overlay each named sample before ID, with single-variable WP efficiencies."""
+        if not variables:
+            return
+        os.makedirs(outdir, exist_ok=True)
+        for region in self.regions:
+            mask = self._mask_region(region)
+            block = self.df if mask.all() else self.df.loc[mask]
+            weights = self._effective_weights(mask)
+            categories = self._categories(block)
+            for variable, specification in variables.items():
+                values = block[variable].to_numpy()
+                samples = {name: (values[selected], weights[selected]) for name, selected in categories.items()}
+                fig, ax, report = plot_cut_distribution(samples, variable, specification, self.wp_sources,
+                                                        region, self.plot_style)
+                self._annotate_plot(ax, region, show_composition=False)
+                path = os.path.join(outdir, f"cuts_{variable}_region-{region}")
+                report["weights"] = "base validation weights; ROC reweighting is not applied"
+                with open(path + ".json", "w") as handle:
+                    json.dump(report, handle, indent=2, allow_nan=False)
+                self._save(fig, path + ".png")
+
     # ---------------------------
-    # 3) N−1 plots
+    # N−1 plots
     # ---------------------------
     def plot_nminus1_distributions(
         self,
@@ -722,6 +745,7 @@ def ValidateIDAnalysis(**kwargs):
         if columns is not None:
             extra = {var for wps in wp_sources.values() for wp in wps for var in wp.meta.get("fixed_cuts", {})}
             extra.update((kwargs.get("roc_reweight") or {}).get("binning", {}))
+            extra.update(set(kwargs.get("cut_distributions", {})) - set(kwargs.get("define_variable", {})))
             composition = (kwargs.get("plot_style") or {}).get("composition", {})
             if composition.get("enabled", False):
                 extra.add(composition["column"])
@@ -847,7 +871,9 @@ def ValidateIDAnalysis(**kwargs):
             xscales={v: cfg.get("xscale", "linear") for v, cfg in monitor_eff.items()},
         )
 
-        # 3) N−1 plots (variables)
+        va.plot_cut_distributions(kwargs.get("cut_distributions", {}), os.path.join(reg_out, "cut_distributions"))
+
+        # N−1 plots (variables)
         nm1_binning = {v: cfg["binning"] for v, cfg in variables.items()}
         va.plot_nminus1_distributions(
             variables=variables.keys(),

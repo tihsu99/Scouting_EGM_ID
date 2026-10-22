@@ -87,6 +87,21 @@ def load_configured_wps(path, options=None):
     return wps
 
 
+def cut_bounds(wp, variable):
+    """Displayable bounds, preserving strict optimized and inclusive fixed cuts."""
+    bounds = []
+    if variable in wp.window_cuts:
+        low, high = wp.window_cuts[variable]
+        strict = wp.meta.get("strict", False)
+        if low > -1e30:
+            bounds.append((">" if strict else "≥", low))
+        if high < 1e30:
+            bounds.append(("<" if strict else "≤", high))
+    bounds.extend(("≥" if key == "min" else "≤", value)
+                  for key, value in wp.meta.get("fixed_cuts", {}).get(variable, {}).items())
+    return bounds
+
+
 def print_id_table(wps_by_region, output=None, requirement=None, region_definitions=None, precision=6):
     """Print a Markdown cut table, optionally save it, and return its contents."""
     lines = ["# Cut-based electron ID", ""]
@@ -105,16 +120,7 @@ def print_id_table(wps_by_region, output=None, requirement=None, region_definiti
             for variable in variables:
                 entries = []
                 for wp in wps:
-                    terms = []
-                    if variable in wp.window_cuts:
-                        low, high = wp.window_cuts[variable]
-                        strict = wp.meta.get("strict", False)
-                        if low > -1e30:
-                            terms.append(f"{'>' if strict else '≥'} {low:.{precision}g}")
-                        if high < 1e30:
-                            terms.append(f"{'<' if strict else '≤'} {high:.{precision}g}")
-                    for bound, value in wp.meta.get("fixed_cuts", {}).get(variable, {}).items():
-                        terms.append(f"{'≥' if bound == 'min' else '≤'} {value:.{precision}g}")
+                    terms = [f"{operator} {value:.{precision}g}" for operator, value in cut_bounds(wp, variable)]
                     entries.append(" and ".join(terms) or "No cut")
                 lines.append(f"| `{variable}` | " + " | ".join(entries) + " |")
             lines.append("")

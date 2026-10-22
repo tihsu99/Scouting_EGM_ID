@@ -123,9 +123,60 @@ validation:
       label: '$\rho$ [GeV]'
       binning: [0, 80, 16]
   variables: {}
+  # Pre-ID shapes use base validation weights. Right-axis efficiencies use all selected rows.
+  cut_distributions:
+    hOverE_calibrated:
+      label: 'Corrected $H/E$'
+      binning: [0, 0.2, 50]
+    relecalIsoWithEA_calibrated:
+      label: 'Corrected ECAL isolation / $p_T$'
+      binning: [0, 2, 80]
+    relhcalIsoWithEA_calibrated:
+      label: 'Corrected HCAL isolation / $p_T$'
+      binning: [0, 2, 80]
+    reltrackIsoWithEA_calibrated:
+      label: 'Corrected track isolation / $p_T$'
+      binning: [0, 0.4, 80]
+    sigmaIetaIeta:
+      label: '$\sigma_{i\eta i\eta}$'
+      binning: [0, 0.05, 50]
+      by_region:
+        Endcap: {binning: [0, 0.08, 80]}
+    abs_dEtaIn:
+      label: '$|\Delta\eta_{\mathrm{in}}|$'
+      binning: [0, 0.03, 60]
+    abs_dPhiIn:
+      label: '$|\Delta\phi_{\mathrm{in}}|$'
+      binning: [0, 0.15, 60]
+    abs_ooEMOop:
+      label: '$|1/E - 1/p|$ [GeV$^{-1}$]'
+      binning: [0, 0.1, 50]
+    missingHits:
+      label: 'Missing inner hits'
+      binning: [-0.5, 5.5, 6]
+    hOverE:
+      label: 'Raw $H/E$'
+      binning: [0, 0.3, 60]
+    relecalIso_E:
+      label: 'Raw ECAL isolation / $E$'
+      binning: [0, 1, 80]
+    relhcalIso_E:
+      label: 'Raw HCAL isolation / $E$'
+      binning: [0, 1, 80]
+    reltrackIso_E:
+      label: 'Raw track isolation / $E$'
+      binning: [0, 0.2, 80]
 
 plot_style:
   formats: [pdf, png]
+  cut_distributions:
+    samples:
+      DY: {label: DY, color: "#3B4CC0"}
+      TT: {label: '$t\bar{t}$', color: "#007F8B"}
+      QCD: {label: QCD, color: "#D55E00"}
+      Zprime: {label: Zprime, color: "#3B4CC0"}
+    efficiency_curve: {alpha: 0.35, linewidth: 1.1, linestyle: "--", markersize: 3}
+    legend: {loc: upper right, ncol: 1, fontsize: 10, borderaxespad: 0.8}
   composition:
     enabled: true
     column: status

@@ -5,6 +5,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from workflow.plotting import add_legend, configure_style, save_plot
 from workflow.working_points import normalize_fixed_cuts, pass_fixed_cuts, load_configured_wps, print_id_table
+from workflow.cut_plots import plot_cut_distribution
 import xml.etree.ElementTree as ET
 
 import ROOT
@@ -192,7 +193,7 @@ def train_cutbased_tmva_sequential_inmem(
     train_signal_path, train_bkg_path, valid_signal_path, valid_bkg_path,
     variables, target_efficiencies, outdir, train_ratio=0.8, weight_col="weight",
     tmva_cycles=60, tmva_popsize=120, random_seed=12345, tag="Default", n_workers = 1, n_signal = 9e19, n_background=9e19, isolation_denominator="unspecified", efficiency_tolerance=0.03,
-    plot_style=None, fixed_cuts=None,
+    plot_style=None, fixed_cuts=None, plot_samples=None, cut_plot_variables=None, region=None,
 ):
     configure_style(plot_style)
     ensure_dir(outdir)
@@ -291,40 +292,21 @@ def train_cutbased_tmva_sequential_inmem(
                     lo = max(lo, thr)
             bounds[v] = (lo, hi)
 
-    # --- Plots ---
-    for v, vconf in variables.items():
-        bins = vconf["binning"]
-        if isinstance(bins, (list, tuple)) and len(bins) == 3:
-            vmin, vmax, nbins = bins
-            bins = np.linspace(vmin, vmax, nbins + 1)
-        direction = vconf.get("direction", "less")
-
-        fig, ax = plt.subplots()
-        plt.hist(sig_va[v].to_numpy(), weights=sig_va["weight"].to_numpy(), label="Signal",
-                 density=True, bins=bins, alpha=0.5, color="C0")
-        plt.hist(bkg_va[v].to_numpy(), weights=bkg_va["weight"].to_numpy(), label="Background",
-                 density=True, bins=bins, alpha=0.5, color="C1")
-        palette = ["#0072B2","#D55E00","#009E73","#CC79A7","#F0E442","#56B4E9","#E69F00","#999999"]
-
-        for i,(wp, info) in enumerate(WPs.items()):
-            thr = info["cuts"].get(v, None)
-            if thr is None: continue
-            plt.axvline(thr, linestyle="--", linewidth=2, color=palette[i % len(palette)],
-                        label=f"{wp} ({thr:.3f})")
-            y1 = plt.ylim()[1]*0.85
-            vmin, vmax = np.min(sig_va[v]), np.max(sig_va[v])
-            if direction == "less":
-                plt.annotate("", xy=(thr-0.02*(vmax-vmin), y1),
-                             xytext=(thr-0.12*(vmax-vmin), y1),
-                             arrowprops=dict(arrowstyle="->", lw=1.5, color="k"))
-            else:
-                plt.annotate("", xy=(thr+0.02*(vmax-vmin), y1),
-                             xytext=(thr+0.12*(vmax-vmin), y1),
-                             arrowprops=dict(arrowstyle="->", lw=1.5, color="k"))
-
-        ax.set(xlabel=v, ylabel="Density")
-        add_legend(ax, plot_style, title="TMVA CutsGA", ncol=2)
-        save_plot(fig, os.path.join(outdir, f"{tag}_{v}_WPs.png"), plot_style)
+    wp_path = os.path.join(outdir, f"CutBased_WPs_{tag}_TMVA_seq.json")
+    with open(wp_path, "w") as handle:
+        json.dump(WPs, handle, indent=2)
+    sources = {tag: load_configured_wps(wp_path)}
+    plot_samples = plot_samples or {"signal": "Signal", "background": "Background"}
+    region = region or os.path.basename(outdir)
+    for variable, specification in dict(variables, **(cut_plot_variables or {})).items():
+        samples = {plot_samples[role]: (frame[variable].to_numpy(), frame["weight"].to_numpy())
+                   for role, frame in (("signal", sig_va), ("background", bkg_va))}
+        fig, ax, report = plot_cut_distribution(samples, variable, specification, sources, region, plot_style)
+        ax.text(.02, .98, region, transform=ax.transAxes, va="top", fontweight="bold", fontsize=18)
+        path = os.path.join(outdir, f"{tag}_{variable}_WPs")
+        with open(path + ".json", "w") as handle:
+            json.dump(report, handle, indent=2, allow_nan=False)
+        save_plot(fig, path + ".png", plot_style)
 
     roc_points = sorted(roc_points, key=lambda x: x[0])
     fig, ax = plt.subplots()
@@ -336,9 +318,7 @@ def train_cutbased_tmva_sequential_inmem(
     add_legend(ax, plot_style)
     save_plot(fig, os.path.join(outdir, f"{tag}_ROC_curve.png"), plot_style)
 
-    with open(os.path.join(outdir, f"CutBased_WPs_{tag}_TMVA_seq.json"), "w") as f:
-        json.dump(WPs, f, indent=2)
-    print_id_table({os.path.basename(outdir): {tag: load_configured_wps(f.name)}},
+    print_id_table({region: sources},
                    os.path.join(outdir, f"CutBased_WPs_{tag}_TMVA_seq.md"))
 
     return {"WPs": WPs, "roc": os.path.join(outdir, f"{tag}_ROC_curve.png")}
@@ -381,6 +361,9 @@ def TrainCutBasedID_TMVAAnalysis(**kwargs):
                 efficiency_tolerance=kwargs.get("efficiency_tolerance", 0.03),
                 plot_style=kwargs.get("plot_style"),
                 fixed_cuts=kwargs.get("fixed_cuts", {}).get(tag, {}),
+                plot_samples=kwargs.get("plot_samples"),
+                cut_plot_variables=kwargs.get("cut_plot_variables"),
+                region=region,
                 n_workers=n_workers,
                 n_signal=n_signal,
                 n_background=n_background

@@ -45,6 +45,10 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
         for settings in (previous, current):
             # Export recipes do not change a plot; an applied export is fingerprinted above.
             settings["configuration"].pop("correctionlib", None)
+            settings["configuration"].get("validation", {}).pop("cut_distributions", None)
+            trainer = settings["training_configuration"].get("workflow", {}).get("TrainCutBasedID_TMVA", {})
+            for field in ("plot_samples", "cut_plot_variables"):
+                trainer.pop(field, None)
             for key in ("configuration", "training_configuration"):
                 settings[key].pop("plot_style", None)
             for group, field in (("wp_sources", "labels"), ("datasets", "label"), ("comparisons", "label")):

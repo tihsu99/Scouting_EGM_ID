@@ -15,6 +15,75 @@ def edges(spec):
     return result
 
 
+def sample_normalizations(sample_paths, normalization):
+    """Resolve event-level receipt denominators without reading candidate rows."""
+    groups = normalization.get("groups", {})
+    group_for = {}
+    for group, cfg in groups.items():
+        for sample in cfg["samples"]:
+            if sample in group_for:
+                raise ValueError(f"Sample {sample} belongs to multiple normalization groups")
+            group_for[sample] = group
+    reports, totals, seen_inputs = {}, {}, set()
+    for sample, paths in sample_paths.items():
+        metadata = []
+        for path in paths:
+            receipt = json.loads(Path(str(path) + ".json").read_text())
+            if receipt["sample"] != sample:
+                raise ValueError(f"Receipt sample mismatch: {path}")
+            for source in receipt["input_files"]:
+                if source in seen_inputs:
+                    raise ValueError(f"Duplicate input file: {source}")
+                seen_inputs.add(source)
+            info = receipt.get("normalization")
+            if not isinstance(info, dict):
+                raise ValueError(f"Missing preselection normalization: {path}. "
+                                 "Recover metadata from the source events before weighted analysis; "
+                                 "merged candidate rows alone cannot supply it.")
+            metadata.append(info)
+        if sample not in group_for:
+            raise ValueError(f"Missing normalization group for {sample}")
+        group = group_for[sample]
+        cfg = groups[group]
+        total = sum(m["sum_genweight"] for m in metadata)
+        totals[group] = totals.get(group, 0.0) + total
+        reports[sample] = dict(group=group, sum_genweight=total,
+                              events=sum(m["events"] for m in metadata),
+                              sum_genweight2=sum(m.get("sum_genweight2", 0.) for m in metadata),
+                              negative_events=sum(m["negative_events"] for m in metadata))
+        if "generator_range" in cfg:
+            lo, hi = cfg["generator_range"]
+            for m in metadata:
+                if m["generator_bin_min"] < lo or (hi is not None and m["generator_bin_max"] >= hi):
+                    raise ValueError(f"Generator bin outside {group} range; verify dataset and binvar")
+    # Only generation bins within the same family are required to be contiguous.
+    families = {}
+    for group in totals:
+        cfg = groups[group]
+        if cfg.get("stitch_family"):
+            families.setdefault(cfg["stitch_family"], []).append(cfg["generator_range"])
+    for family, ranges in families.items():
+        ranges = sorted(ranges, key=lambda r: r[0])
+        for left, right in zip(ranges, ranges[1:]):
+            if left[1] is None or left[1] != right[0]:
+                raise ValueError(f"Gap or overlap in {family}: {left}, {right}")
+    for sample in sample_paths:
+        group = group_for[sample]
+        cfg = groups[group]
+        sigma = cfg.get("cross_section_pb")
+        if sigma is None or not np.isfinite(sigma) or sigma <= 0:
+            raise ValueError(f"Set a verified cross_section_pb for normalization group {group}")
+        if not np.isfinite(totals[group]) or totals[group] <= 0:
+            raise ValueError(f"Nonpositive generator weight sum for {group}")
+        factor = float(sigma) * normalization.get("luminosity_pb", 1.0) / totals[group]
+        if not np.isfinite(factor) or factor <= 0:
+            raise ValueError(f"Invalid normalization for {group}")
+        reports[sample].update(normalization_factor=factor, cross_section_pb=float(sigma),
+                               group_sum_genweight=totals[group],
+                               luminosity_pb=normalization.get("luminosity_pb", 1.0))
+    return reports
+
+
 def load_samples(inputdir, process, n_files=-1, normalization=None, columns=None,
                  max_rows_per_sample=None, batch_size=100000, progress=False):
     """Load samples; an optional prefix cap applies before cuts and event splitting."""
@@ -29,24 +98,19 @@ def load_samples(inputdir, process, n_files=-1, normalization=None, columns=None
     # Prefix truncation has no preselection generator sum for physical yields.
     if limit is not None and normalization:
         raise ValueError("max_rows_per_sample cannot be combined with cross-section normalization")
-    groups = normalization.get("groups", {})
     weight_column = normalization.get("weight_column", "Generator.weight")
-    group_for = {}
-    for group, cfg in groups.items():
-        for sample in cfg["samples"]:
-            if sample in group_for:
-                raise ValueError(f"Sample {sample} belongs to multiple normalization groups")
-            group_for[sample] = group
     names = sorted({s for cfg in process.values() for s in cfg["samples"]})
-    frames, reports, totals = {}, {}, {}
-    seen_inputs = set()
+    frames, reports, sample_paths = {}, {}, {}
     for sample in names:
         paths = sorted((Path(inputdir) / sample).glob("*.parquet"))
         if n_files > 0:
             paths = paths[:n_files]
         if not paths:
             raise FileNotFoundError(f"No Parquet files for {sample} in {inputdir}")
-        parts, metadata, read_paths = [], [], []
+        sample_paths[sample] = paths
+    normalized = sample_normalizations(sample_paths, normalization) if normalization else {}
+    for sample, paths in sample_paths.items():
+        parts, read_paths = [], []
         rows_read = 0
         for path in paths:
             if limit is not None and rows_read >= limit:
@@ -76,20 +140,6 @@ def load_samples(inputdir, process, n_files=-1, normalization=None, columns=None
                             if limit is not None and rows_read >= limit:
                                 break
             read_paths.append(path)
-            if normalization:
-                receipt = json.loads(Path(str(path) + ".json").read_text())
-                if receipt["sample"] != sample:
-                    raise ValueError(f"Receipt sample mismatch: {path}")
-                for source in receipt["input_files"]:
-                    if source in seen_inputs:
-                        raise ValueError(f"Duplicate input file: {source}")
-                    seen_inputs.add(source)
-                info = receipt.get("normalization")
-                if not isinstance(info, dict):
-                    raise ValueError(f"Missing preselection normalization: {path}. "
-                                     "Recover metadata from the source events before weighted analysis; "
-                                     "merged electron rows alone cannot supply it.")
-                metadata.append(info)
         if not parts:
             raise ValueError(f"No candidates in {sample}")
         frames[sample] = pd.concat(parts, ignore_index=True)
@@ -98,49 +148,10 @@ def load_samples(inputdir, process, n_files=-1, normalization=None, columns=None
         # Preserve the input position before cuts; keep the same sorted files when reusing a split.
         frames[sample]["sample_row"] = np.arange(len(frames[sample]), dtype=np.uint64)
         reports[sample] = {"files": [str(p) for p in read_paths], "rows": len(frames[sample])}
-        if normalization:
-            if sample not in group_for:
-                raise ValueError(f"Missing normalization group for {sample}")
-            group = group_for[sample]
-            cfg = groups[group]
-            total = sum(m["sum_genweight"] for m in metadata)
-            totals[group] = totals.get(group, 0.0) + total
-            reports[sample].update(group=group, sum_genweight=total,
-                                   events=sum(m["events"] for m in metadata),
-                                   sum_genweight2=sum(m.get("sum_genweight2", 0.) for m in metadata),
-                                   negative_events=sum(m["negative_events"] for m in metadata))
-            if "generator_range" in cfg:
-                lo, hi = cfg["generator_range"]
-                for m in metadata:
-                    if m["generator_bin_min"] < lo or (hi is not None and m["generator_bin_max"] >= hi):
-                        raise ValueError(f"Generator bin outside {group} range; verify dataset and binvar")
-    # Only generation bins within the same family are required to be contiguous.
-    families = {}
-    for group in totals:
-        cfg = groups[group]
-        if cfg.get("stitch_family"):
-            families.setdefault(cfg["stitch_family"], []).append(cfg["generator_range"])
-    for family, ranges in families.items():
-        ranges = sorted(ranges, key=lambda r: r[0])
-        for left, right in zip(ranges, ranges[1:]):
-            if left[1] is None or left[1] != right[0]:
-                raise ValueError(f"Gap or overlap in {family}: {left}, {right}")
     for sample, frame in frames.items():
         if normalization:
-            group = group_for[sample]
-            cfg = groups[group]
-            sigma = cfg.get("cross_section_pb")
-            if sigma is None or not np.isfinite(sigma) or sigma <= 0:
-                raise ValueError(f"Set a verified cross_section_pb for normalization group {group}")
-            if not np.isfinite(totals[group]) or totals[group] <= 0:
-                raise ValueError(f"Nonpositive generator weight sum for {group}")
-            factor = float(sigma) * normalization.get("luminosity_pb", 1.0) / totals[group]
-            if not np.isfinite(factor) or factor <= 0:
-                raise ValueError(f"Invalid normalization for {group}")
-            frame["weight"] = frame[weight_column].to_numpy(dtype=float) * factor
-            reports[sample].update(normalization_factor=factor, cross_section_pb=float(sigma),
-                                   group_sum_genweight=totals[group],
-                                   luminosity_pb=normalization.get("luminosity_pb", 1.0))
+            reports[sample].update(normalized[sample])
+            frame["weight"] = frame[weight_column].to_numpy(dtype=float) * normalized[sample]["normalization_factor"]
         else:
             frame["weight"] = 1.0
         if not np.isfinite(frame["weight"]).all():

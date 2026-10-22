@@ -27,6 +27,12 @@ normalization: {}
 
 plot_style:
     formats: [pdf, png]
+    wp_label_format: "{label}"
+    wp_palette: ["#0072B2", "#56B4E9", "#3B4CC0", "#009E73"]
+    cut_distributions:
+        samples:
+            DY: {label: DY, color: "#3B4CC0"}
+            TT: {label: '$t\bar{t}$', color: "#007F8B"}
     max_series_per_panel: 8
     rc_params:
         figure.figsize: [10, 8]
@@ -216,6 +222,9 @@ workflow:
 
 
     TrainCutBasedID_TMVA:
+        plot_samples: {signal: DY, background: TT}
+        cut_plot_variables:
+            missingHits: {label: 'Missing inner hits', binning: [-0.5, 5.5, 6]}
         fixed_cuts:
             Iso: &electron_fixed_cuts
                 WP95: {missingHits: {max: 2}}
