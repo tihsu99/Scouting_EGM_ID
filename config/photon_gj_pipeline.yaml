@@ -367,7 +367,7 @@ workflow_overrides:
     batch_size: 1000000
     # Keep the first candidates before truth/kinematic cuts and event splitting.
     # N/K rescaling assumes the prefix is representative; event receipt sums stay unchanged.
-    max_rows_per_sample: 500000
+    max_rows_per_sample: 2000000
     sampling:
       method: prefix
       cache_dir: outputs/cache/photon_gj_calibration
