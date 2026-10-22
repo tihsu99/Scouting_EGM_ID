@@ -1,6 +1,7 @@
 """Bounded candidate subsets with reusable raw-column caches."""
 import hashlib
 import json
+from collections.abc import Mapping
 from pathlib import Path
 import random
 import tempfile
@@ -9,6 +10,78 @@ import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 from tqdm import tqdm
+
+
+def sample_training_candidates(frame, size, config, seed, weight_column):
+    """Sample within sample/kinematic strata and correct for inclusion probability."""
+    if not isinstance(config, Mapping) or set(config) != {"variable", "edges", "factors"}:
+        raise ValueError("training_sampling requires variable, edges, factors")
+    if isinstance(size, bool) or not isinstance(size, int) or size < 1:
+        raise ValueError("Training sample size must be a positive integer")
+    variable = config["variable"]
+    boundaries = np.asarray([np.inf if value is None else value for value in config["edges"]], dtype=float)
+    factors = np.asarray(config["factors"], dtype=float)
+    if (boundaries.ndim != 1 or len(boundaries) < 2 or not np.isfinite(boundaries[:-1]).all()
+            or np.isnan(boundaries).any() or np.any(np.diff(boundaries) <= 0)
+            or factors.shape != (len(boundaries) - 1,) or not np.isfinite(factors).all()
+            or (factors <= 0).any()):
+        raise ValueError("training_sampling needs increasing edges and one positive factor per bin")
+    missing = {"sample", variable, weight_column} - set(frame.columns)
+    if missing:
+        raise ValueError(f"Missing training sampling columns: {sorted(missing)}")
+    weights = frame[weight_column].to_numpy(dtype=float)
+    if not np.isfinite(weights).all() or (weights < 0).any():
+        raise ValueError("Training sampling requires finite, nonnegative weights")
+    # Zero-weight candidates cannot contribute to the optimizer's requested statistics.
+    eligible_positions = np.flatnonzero(weights > 0)
+    eligible = frame[["sample", variable]].iloc[eligible_positions]
+    values = eligible[variable].to_numpy(dtype=float)
+    bins = np.searchsorted(boundaries, values, side="right") - 1
+    if (not np.isfinite(values).all() or eligible["sample"].isna().any()
+            or (bins < 0).any() or (bins >= len(factors)).any()):
+        raise ValueError("Training sampling bins must cover every positive-weight candidate")
+    if len(eligible) < size:
+        raise ValueError(f"Need {size:,} positive-weight prepared candidates, found {len(eligible):,}; "
+                         "increase the prepared pool or reduce the configured training counts")
+    groups = list(eligible.groupby([eligible["sample"], bins], sort=True, observed=True).indices.items())
+    counts = np.asarray([len(positions) for _, positions in groups], dtype=np.int64)
+    if size < len(groups):
+        raise ValueError("Training sample size must cover every populated sample/bin stratum")
+    priorities = counts * np.asarray([factors[bin_id] for (_, bin_id), _ in groups])
+    if not np.isfinite(priorities.sum()):
+        raise ValueError("Training sampling factors are too large")
+    # Reserve one row per stratum, then redistribute quotas when small strata saturate.
+    quotas = np.ones(len(groups), dtype=np.int64)
+    while quotas.sum() < size:
+        active = np.flatnonzero(quotas < counts)
+        shares = (size - quotas.sum()) * priorities[active] / priorities[active].sum()
+        additions = np.minimum(np.floor(shares).astype(np.int64), counts[active] - quotas[active])
+        if not additions.any():
+            order = np.argsort(-shares, kind="stable")[:int(size - quotas.sum())]
+            additions[order] = 1
+        quotas[active] += additions
+    rng = np.random.default_rng(seed)
+    positions, corrections, strata = [], [], []
+    for ((sample, bin_id), population), count in zip(groups, quotas):
+        chosen = rng.choice(population, size=int(count), replace=False)
+        correction = len(population) / int(count)
+        positions.append(chosen)
+        corrections.append(np.full(int(count), correction))
+        strata.append(dict(sample=str(sample), bin=int(bin_id), available=len(population),
+                           selected=int(count), factor=float(factors[bin_id]),
+                           inclusion_probability=int(count) / len(population),
+                           weight_rescale=correction))
+    selected = frame.iloc[eligible_positions[np.concatenate(positions)]].copy()
+    selected[weight_column] = selected[weight_column].to_numpy(dtype=float) * np.concatenate(corrections)
+    selected = selected.iloc[rng.permutation(len(selected))].reset_index(drop=True)
+    report = dict(method="stratified_without_replacement", seed=seed,
+                  variable=variable, edges=list(config["edges"]), factors=factors.tolist(),
+                  input_rows=len(frame), zero_weight_rows=int((weights == 0).sum()),
+                  available=len(eligible), selected=len(selected),
+                  weight_column=weight_column, weight_correction="available / selected within each sample/bin",
+                  input_sumw=float(weights.sum()), selected_sumw=float(selected[weight_column].sum()),
+                  strata=strata)
+    return selected, report
 
 
 def load_sample_subset(paths, columns, limit, seed, sample, cache_dir, batch_size, progress,

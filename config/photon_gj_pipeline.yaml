@@ -10,8 +10,8 @@
 # das_events_reference is audit metadata, not the normalization denominator.
 steps: [calibrate, prepare, train, validate]
 default_wp: null
-signal_requirement: (status == 1) & (pt > 15) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.5666) & (abs(eta) < 2.5)))
-background_requirement: ((status == 0) | (status == 3)) & (pt > 15) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.5666)
+signal_requirement: (status == 1) & (pt > 10) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.5666) & (abs(eta) < 2.5)))
+background_requirement: ((status == 0) | (status == 3)) & (pt > 10) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.5666)
   & (abs(eta) < 2.5)))
 training_weight_mode: nonnegative
 shared:
@@ -154,13 +154,20 @@ workflow:
       hcalIso_calibrated: [0, 20, 40]
   TrainCutBasedID_TMVA:
     weight_col: training_weight
+    # Unweighted signal quantiles bound the search; candidates outside remain in the dataset.
+    bound_quantiles: [0.001, 0.99]
     isolation_denominator: none
     efficiency_tolerance: 0.03
     regions: [Barrel, Endcap]
     target_efficiencies: [0.7, 0.8, 0.9]
-    n_workers: 4
-    n_signal: 300000
-    n_background: 300000
+    n_workers: 2
+    # Actual optimizer counts per region; train_ratio reserves 75k more per class for TMVA testing.
+    n_train_signal: 300000
+    n_train_background: 300000
+    training_sampling:
+      variable: pt
+      edges: [0, 100, null]
+      factors: [2.0, 1.0]
     tmva_cycles: 60
     tmva_popsize: 100
     random_seed: 12345
@@ -170,22 +177,18 @@ workflow:
       PhotonIso:
         sigmaIetaIeta:
           min: 0
-          max: 999999
           direction: less
           binning: [0, 0.05, 50]
         hOverE_calibrated:
           min: -999999
-          max: 999999
           direction: less
           binning: [-0.1, 0.2, 30]
         ecalIso_calibrated:
           min: 0
-          max: 999999
           direction: less
           binning: [0, 20, 40]
         hcalIso_calibrated:
           min: 0
-          max: 999999
           direction: less
           binning: [0, 20, 40]
   ValidateID:
@@ -196,7 +199,7 @@ workflow:
     connect_sources: [Optimized(PhotonIso)]
     label: Winter25 ScoutingPhoton GJ; status 1 vs 0,3; XSDB LO weights (Summer24 reference)
     pt_regions:
-      pt15to100: [15, 100]
+      pt10to100: [10, 100]
       pt100to300: [100, 300]
       pt300to800: [300, 800]
       pt800plus: [800, null]
@@ -204,7 +207,7 @@ workflow:
       pt:
         label: $p_T$ [GeV]
         xscale: log
-        binning: [15, 20, 30, 50, 80, 100, 150, 200, 300, 500, 800, 1200, 2000, 5000, 10000]
+        binning: [10, 15, 20, 30, 50, 80, 100, 150, 200, 300, 500, 800, 1200, 2000, 5000, 10000]
       eta:
         label: $\eta$
         binning: [-2.5, 2.5, 25]

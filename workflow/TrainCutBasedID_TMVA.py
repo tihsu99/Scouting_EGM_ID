@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from workflow.plotting import add_legend, configure_style, save_plot
 from workflow.working_points import normalize_fixed_cuts, pass_fixed_cuts, load_configured_wps, print_id_table
 from workflow.cut_plots import plot_cut_distribution
+from workflow.sampling import sample_training_candidates
 import xml.etree.ElementTree as ET
 
 import ROOT
@@ -86,7 +87,8 @@ def to_one_sided(window_cuts, directions):
 
 # ---------------- TMVA Training for one WP with bounds ----------------
 def tmva_train_one_wp_inmem(sig_df, bkg_df, var_list, bounds, out_dir, weight_col,
-                            train_ratio, method_name, ncycles, popsize, random_seed, eff_target, n_signal, n_background, n_workers=1, efficiency_tolerance=0.03):
+                            train_ratio, method_name, ncycles, popsize, random_seed, eff_target, n_signal, n_background, n_workers=1, efficiency_tolerance=0.03,
+                            n_train_signal=None, n_train_background=None):
     """
     sig_df, bkg_df: pandas DataFrames
     bounds: {var: (lo, hi)} -> will be passed to CutsGA as CutRangeMin/Max
@@ -139,8 +141,8 @@ def tmva_train_one_wp_inmem(sig_df, bkg_df, var_list, bounds, out_dir, weight_co
 
     n_sig_total = min(n_sig_total, n_signal)
     n_bkg_total = min(n_bkg_total, n_background)
-    n_train_sig = int(n_sig_total * train_ratio)
-    n_train_bkg = int(n_bkg_total * train_ratio)
+    n_train_sig = int(n_sig_total * train_ratio) if n_train_signal is None else n_train_signal
+    n_train_bkg = int(n_bkg_total * train_ratio) if n_train_background is None else n_train_background
     n_test_sig  = n_sig_total - n_train_sig
     n_test_bkg  = n_bkg_total - n_train_bkg
 
@@ -194,6 +196,8 @@ def train_cutbased_tmva_sequential_inmem(
     variables, target_efficiencies, outdir, train_ratio=0.8, weight_col="weight",
     tmva_cycles=60, tmva_popsize=120, random_seed=12345, tag="Default", n_workers = 1, n_signal = 9e19, n_background=9e19, isolation_denominator="unspecified", efficiency_tolerance=0.03,
     plot_style=None, fixed_cuts=None, plot_samples=None, cut_plot_variables=None, region=None,
+    training_sampling=None, n_train_signal=None, n_train_background=None,
+    bound_quantiles=(0.001, 0.999), preview_training=False,
 ):
     configure_style(plot_style)
     ensure_dir(outdir)
@@ -201,14 +205,73 @@ def train_cutbased_tmva_sequential_inmem(
     directions = {v: variables[v]["direction"] for v in var_list}
 
     # Load data
-    def load_and_keep(path):
-        df = pd.read_parquet(path)
-        keep = {v: df[v].values for v in var_list}
-        keep[weight_col] = df[weight_col].values
-        return pd.DataFrame(keep)
+    columns = list(dict.fromkeys(var_list + [weight_col]))
+    if training_sampling is not None:
+        for count in (n_train_signal, n_train_background):
+            if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+                raise ValueError("training_sampling requires positive integer n_train_signal and n_train_background")
+        if not 0 < train_ratio < 1:
+            raise ValueError("Training sampling requires 0 < train_ratio < 1 for an internal TMVA test set")
+        columns = list(dict.fromkeys(columns + ["sample", training_sampling["variable"]]))
+    elif n_train_signal is not None or n_train_background is not None:
+        raise ValueError("Exact n_train_signal/n_train_background require training_sampling")
+    def load_training(path, size, seed):
+        frame = pd.read_parquet(path, columns=columns)
+        if training_sampling is None:
+            return frame, None
+        selected, report = sample_training_candidates(frame, size, training_sampling, seed, weight_col)
+        return selected[var_list + [weight_col]], report
 
-    sig_tr = load_and_keep(train_signal_path)
-    bkg_tr = load_and_keep(train_bkg_path)
+    if training_sampling is not None:
+        n_signal = math.ceil(n_train_signal / train_ratio)
+        n_background = math.ceil(n_train_background / train_ratio)
+    sig_tr, signal_report = load_training(train_signal_path, n_signal, random_seed)
+    bkg_tr, background_report = load_training(train_bkg_path, n_background, random_seed + 1)
+    if training_sampling is not None:
+        report = {"region": region, "tag": tag, "source": "prepared train partition",
+                  "signal": dict(signal_report, path=os.path.abspath(train_signal_path),
+                                 training_rows=n_train_signal, tmva_test_rows=n_signal - n_train_signal),
+                  "background": dict(background_report, path=os.path.abspath(train_bkg_path),
+                                     training_rows=n_train_background, tmva_test_rows=n_background - n_train_background)}
+        with open(os.path.join(outdir, f"training_sampling_{tag}.json"), "w") as handle:
+            json.dump(report, handle, indent=2, allow_nan=False)
+        for role in ("signal", "background"):
+            info = report[role]
+            print(f"[TMVA] {region}/{role}: {info['training_rows']:,} training + "
+                  f"{info['tmva_test_rows']:,} test from {info['available']:,} positive-weight prepared rows")
+    for df in (sig_tr, bkg_tr):
+        if not np.isfinite(df.to_numpy()).all() or (df[weight_col] < 0).any() or df[weight_col].sum() <= 0:
+            raise ValueError("TMVA inputs must be finite with nonnegative training weights")
+
+    # Initial bounds
+    quantiles = np.asarray(bound_quantiles, dtype=float)
+    if quantiles.shape != (2,) or not 0 <= quantiles[0] < quantiles[1] <= 1:
+        raise ValueError("bound_quantiles must contain two increasing probabilities in [0, 1]")
+    bounds = {}
+    bound_report = dict(region=region, tag=tag, quantiles=quantiles.tolist(),
+                        quantile_weighting="unweighted", source="signal pool before the internal TMVA split",
+                        signal_rows=len(sig_tr), background_rows=len(bkg_tr), variables={})
+    for v in var_list:
+        qlow, qhigh, q99, q999 = np.quantile(sig_tr[v], [*quantiles, .99, .999])
+        b99, b999 = np.quantile(bkg_tr[v], [.99, .999])
+        lo = max(variables[v].get("min", float(sig_tr[v].min())), qlow)
+        hi = min(variables[v].get("max", float(sig_tr[v].max())), qhigh)
+        if not np.isfinite([lo, hi]).all() or lo > hi:
+            raise ValueError(f"Invalid initial bounds for {v}: {lo}, {hi}")
+        bounds[v] = (float(lo), float(hi))
+        bound_report["variables"][v] = dict(signal_q99=float(q99), signal_q999=float(q999),
+                                            background_q99=float(b99), background_q999=float(b999),
+                                            signal_max=float(sig_tr[v].max()), background_max=float(bkg_tr[v].max()),
+                                            lower=float(lo), upper=float(hi))
+    bounds_path = os.path.join(outdir, f"training_bounds_{tag}.json")
+    with open(bounds_path, "w") as handle:
+        json.dump(bound_report, handle, indent=2, allow_nan=False)
+    print(f"[TMVA] {region}/{tag}: unweighted signal quantiles {quantiles.tolist()} set initial bounds")
+    print(pd.DataFrame(bound_report["variables"]).T[
+        ["signal_q99", "signal_q999", "background_q99", "lower", "upper"]].to_string(float_format=lambda x: f"{x:.6g}"))
+    if preview_training:
+        return {"bounds": bounds, "bounds_report": bounds_path}
+
     # Validation retains signed physical weights, independent of training reweighting.
     sig_va = pd.read_parquet(valid_signal_path)
     bkg_va = pd.read_parquet(valid_bkg_path)
@@ -217,16 +280,6 @@ def train_cutbased_tmva_sequential_inmem(
     for cuts in fixed_cuts.values():
         pass_fixed_cuts(sig_va, cuts)
         pass_fixed_cuts(bkg_va, cuts)
-    for df in (sig_tr, bkg_tr):
-        if not np.isfinite(df.to_numpy()).all() or (df[weight_col] < 0).any() or df[weight_col].sum() <= 0:
-            raise ValueError("TMVA inputs must be finite with nonnegative training weights")
-
-    # Initial bounds
-    bounds = {}
-    for v in var_list:
-        lo = max(variables[v].get("min", float(np.nanmin(sig_tr[v]))), np.quantile(sig_tr[v], 0.001))
-        hi = min(variables[v].get("max", float(np.nanmax(sig_tr[v]))), np.quantile(sig_tr[v], 0.999))
-        bounds[v] = (float(lo), float(hi))
 
     WPs, roc_points = {}, []
 
@@ -242,7 +295,9 @@ def train_cutbased_tmva_sequential_inmem(
             n_workers = n_workers,
             n_signal = n_signal,
             n_background = n_background,
-            efficiency_tolerance=efficiency_tolerance
+            efficiency_tolerance=efficiency_tolerance,
+            n_train_signal=n_train_signal,
+            n_train_background=n_train_background,
         )
 
 #        wps = parse_tmva_wps(weights_xml)
@@ -366,6 +421,11 @@ def TrainCutBasedID_TMVAAnalysis(**kwargs):
                 region=region,
                 n_workers=n_workers,
                 n_signal=n_signal,
-                n_background=n_background
+                n_background=n_background,
+                training_sampling=kwargs.get("training_sampling"),
+                n_train_signal=kwargs.get("n_train_signal"),
+                n_train_background=kwargs.get("n_train_background"),
+                bound_quantiles=kwargs.get("bound_quantiles", (0.001, 0.999)),
+                preview_training=kwargs.get("preview_training", False),
             )
     print("[TMVA] All regions finished.")
