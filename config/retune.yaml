@@ -216,6 +216,13 @@ workflow:
 
 
     TrainCutBasedID_TMVA:
+        fixed_cuts:
+            Iso: &electron_fixed_cuts
+                WP95: {missingHits: {max: 2}}
+                WP90: {missingHits: {max: 1}}
+                WP80: {missingHits: {max: 1}}
+                WP70: {missingHits: {max: 1}}
+            noIso: *electron_fixed_cuts
         weight_col: training_weight
         isolation_denominator: pt
         efficiency_tolerance: 0.03

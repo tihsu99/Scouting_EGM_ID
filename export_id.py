@@ -11,7 +11,7 @@ import correctionlib
 import yaml
 
 from workflow.IDCorrection import build_correction_set
-from workflow.ValidateID import load_configured_wps
+from workflow.working_points import configured_wp_sources, load_configured_wps, print_id_table
 
 
 def export_id(config_path, outputdir, training_dir=None, correction_lib=None):
@@ -31,7 +31,7 @@ def export_id(config_path, outputdir, training_dir=None, correction_lib=None):
     wps_by_region = {}
     for region in config.get("regions", preparation["regions"]):
         wps_by_region[region] = {}
-        for source, options in config["wp_sources"].items():
+        for source, options in configured_wp_sources(base, config).items():
             options = {"path": options} if isinstance(options, str) else options
             path = Path(options["path"].format(training_dir=training_dir, region=region,
                                               config_dir=config_path.parent)).resolve()
@@ -42,7 +42,7 @@ def export_id(config_path, outputdir, training_dir=None, correction_lib=None):
     correctionlib.CorrectionSet.from_string(payload)
     output = Path(outputdir)
     output.mkdir(parents=True, exist_ok=True)
-    destinations = [output / name for name in ("scouting_id.json.gz", "manifest.json", "apply_id.py")]
+    destinations = [output / name for name in ("scouting_id.json.gz", "manifest.json", "apply_id.py", "cutbased_id.md")]
     if any(path.exists() for path in destinations):
         raise FileExistsError(f"ID export already exists in {output}; use a new output directory")
     packed = gzip.compress(payload.encode(), mtime=0)
@@ -54,6 +54,7 @@ def export_id(config_path, outputdir, training_dir=None, correction_lib=None):
     destinations[0].write_bytes(packed)
     destinations[1].write_text(json.dumps(manifest, indent=2) + "\n")
     shutil.copyfile(Path(__file__).with_name("apply_id.py"), destinations[2])
+    print_id_table(wps_by_region, destinations[3], config["correctionlib"]["requirement"], base["region_definition"])
     return destinations[0]
 
 

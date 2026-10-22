@@ -71,6 +71,13 @@ wp_sources:
 
 validation:
   unit_weights: true
+  # Fit before any ID cut, separately per detector region; only ROC weights change.
+  roc_reweight:
+    source: QCD
+    target: TT
+    binning:
+      pt: [10, 15, 20, 30, 40, 60, 80, 120, 200, 300, 500, 700, 1000, 2000, 5000, 10000]
+      eta: [-2.5, 2.5, 10]
   # Project only inputs used by the isolated/default WPs, selections and monitors.
   input_columns:
     - sample
@@ -82,6 +89,7 @@ validation:
     - hcalIso
     - trackIso
     - hOverE
+    - missingHits
     - hOverE_calibrated
     - sigmaIetaIeta
     - abs_dEtaIn
@@ -118,32 +126,46 @@ validation:
 
 plot_style:
   formats: [pdf, png]
+  composition:
+    enabled: true
+    column: status
+    size: 44
+    fontsize: 9
+    min_fraction_label: 0.1
+    box: {loc: lower right, bbox_to_anchor: [0, 0.08, 1, 1], pad: 0, borderpad: 0.7, frameon: false}
+    categories:
+      1: {label: prompt, color: "#56B4E9"}
+      2: {label: 'from $\tau$', color: "#E69F00"}
+      3: {label: nonprompt, color: "#CC79A7"}
+      0: {label: unmatched, color: "#999999"}
   source_markers: {Iso: o, Default: s}
   wp_label_format: "{label}"
   info_box:
+    reserve_space: true
+    show_details: false
     heading: {fontweight: bold, fontsize: 18}
     text: {fontsize: 14}
-    box: {loc: upper left, pad: 0.5, borderpad: 0.7, frameon: true}
-    frame: {facecolor: white, edgecolor: "#B0B0B0", alpha: 0.95}
+    box: {loc: upper left, pad: 0.5, borderpad: 0.7, frameon: false}
   efficiency_per_process: true
   efficiency_overlay_signal: true
   efficiency_linestyles: {signal: "-", background: "--"}
   efficiency_ylim: [0, 1.2]
   efficiency_x_errors: true
-  # Each separate efficiency plot uses the same contrasting WP colors.
-  wp_palette: ["#0072B2", "#D55E00", "#009E73", "#CC79A7", "#000000", "#E69F00"]
+  # Fallback palette for plots without a named background sample.
+  wp_palette: ["#0072B2", "#56B4E9", "#3B4CC0", "#009E73", "#111111", "#707070"]
   roc_box_aspect: 1
-  roc_margins: {x: 0.15, y: 0.35}
+  roc_margins: {x: 0.15, y: 0.5}
   roc_outputdir: "{outputdir}/ROC"
   roc_filename_prefix: "{comparison}_"
   # ROC overlays distinguish samples with separate palettes.
   # All palettes follow source/WP order:
   # Iso WP70, WP80, WP90, WP95, Default Recommend, Default AXOL1TL.
-  # All markers are solid; efficiency colors are shared across samples.
+  # TT uses cool colors, QCD uses warm colors, and Default WPs use grays.
+  # Each signal/background efficiency pair shares the background palette.
   process_palettes:
-    TT: ["#0072B2", "#CC79A7", "#E69F00", "#009E73", "#000000", "#CC3311"]
-    QCD: ["#56B4E9", "#882255", "#AA4499", "#999933", "#3F51B5", "#007F7F"]
-    DY: &signal_palette ["#117733", "#44AA99", "#999999", "#661100", "#6611AA", "#AA7700"]
+    TT: ["#0072B2", "#56B4E9", "#3B4CC0", "#009E73", "#111111", "#606060"]
+    QCD: ["#D55E00", "#E69F00", "#CC6677", "#AA3377", "#808080", "#B0B0B0"]
+    DY: &signal_palette ["#0072B2", "#56B4E9", "#3B4CC0", "#009E73", "#111111", "#707070"]
     Zprime: *signal_palette
   # One overview figure contains all WPs; dedicated figures contain one WP each.
   max_series_per_panel: 24

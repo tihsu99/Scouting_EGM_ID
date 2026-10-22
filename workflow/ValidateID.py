@@ -1,6 +1,5 @@
 import os
 import json
-from dataclasses import dataclass
 from typing import Dict, List, Tuple, Optional, Iterable
 
 import numpy as np
@@ -12,9 +11,10 @@ from rich.console import Console
 from rich.table import Table
 import matplotlib.colors as mc
 import colorsys
-from workflow.data import edges, efficiency_stats
+from workflow.data import edges, efficiency_stats, kinematic_weights
+from workflow.working_points import WP, load_tmva_wp_file, load_configured_wps, pass_fixed_cuts, print_id_table
 from workflow.InspectDistribution import define_variables
-from workflow.plotting import add_legend, configure_style, save_plot, series_panels
+from workflow.plotting import add_legend, configure_style, save_plot, series_panels, composition_panel
 
 def lighten_color(color, amount=0.3):
     """
@@ -61,64 +61,6 @@ OKABE_ITO = [
 SB_STYLES = {"signal": "-", "background": "--"}
 
 
-@dataclass
-class WP:
-    name: str
-    window_cuts: Dict[str, Tuple[float, float]]  # var -> (low, high)
-    meta: Dict[str, float]  # e.g. {"eff_selected_from_tmva": 0.7}
-
-
-# -----------------------------
-# WP loading (TMVA-style)
-# -----------------------------
-def _normalize_window_cuts(entry: dict) -> Dict[str, Tuple[float, float]]:
-    """
-    Expect TMVA-like structure with 'window_cuts':
-      "window_cuts": { "var": [low, high], ... }
-
-    If only 'cuts' is present, interpret as (-inf, thr].
-    """
-    if "window_cuts" in entry:
-        win = entry["window_cuts"]
-        return {k: (float(v[0]), float(v[1])) for k, v in win.items()}
-    elif "cuts" in entry:
-        # Fallback: treat cuts as upper thresholds.
-        return {k: (-1e30, float(v)) for k, v in entry["cuts"].items()}
-    else:
-        raise KeyError("No 'window_cuts' or 'cuts' in WP JSON entry")
-
-
-def load_tmva_wp_file(path: str) -> List[WP]:
-    with open(path, "r") as f:
-        spec = json.load(f)
-
-    wps: List[WP] = []
-    for wp_name, cfg in spec.items():
-        window_cuts = _normalize_window_cuts(cfg)
-        meta = {k: v for k, v in cfg.items()
-                if k not in ("cuts", "window_cuts")}
-        wps.append(WP(name=wp_name, window_cuts=window_cuts, meta=meta))
-
-    # Sort by eff_selected_from_tmva if present
-    wps.sort(key=lambda w: w.meta.get("eff_selected_from_tmva", np.nan))
-    return wps
-
-
-def load_configured_wps(path, options=None):
-    options = options or {}
-    wps = load_tmva_wp_file(path)
-    for wp in wps:
-        expected = options.get("isolation_denominator")
-        if expected is not None and wp.meta.get("isolation_denominator") != expected:
-            raise ValueError(f"Isolation denominator mismatch in {path}/{wp.name}: expected {expected}")
-        mapping = options.get("variable_map", {})
-        wp.window_cuts = {mapping.get(var, var): cut for var, cut in wp.window_cuts.items()}
-        wp.meta["label"] = options.get("labels", {}).get(wp.name, wp.name)
-    if not wps:
-        raise ValueError(f"No working points in {path}")
-    return wps
-
-
 # -----------------------------
 # Core analysis class
 # -----------------------------
@@ -136,6 +78,7 @@ class ValidationAnalyzer:
         connect_sources: Iterable[str] = (),
         dedicated_wps: bool = False,
         regions: Optional[List[str]] = None,
+        roc_weight_col: Optional[str] = None,
     ):
         self.plot_style = plot_style
         configure_style(plot_style)
@@ -146,6 +89,7 @@ class ValidationAnalyzer:
         self.class_col = class_col
         self.region_col = region_col
         self.weight_col = weight_col
+        self.roc_weight_col = roc_weight_col
         self.processes = processes
         self.connect_sources = set(connect_sources)
         self.dedicated_wps = dedicated_wps
@@ -159,6 +103,24 @@ class ValidationAnalyzer:
         self.reweight_target_class: Optional[str] = None
         self.reweight_reference_class: Optional[str] = None
         self.reweight_maps_by_region: Dict[str, Tuple[np.ndarray, List[np.ndarray]]] = {}
+        self.composition = {}
+        composition = (plot_style or {}).get("composition", {})
+        if composition.get("enabled", False):
+            definitions = composition["categories"]
+            for region in self.regions:
+                mask = self._mask_region(region)
+                block = self.df if mask.all() else self.df.loc[mask]
+                samples = {}
+                for name, mask in self._categories(block).items():
+                    values = block.loc[mask, composition["column"]]
+                    if not values.isin(definitions).all():
+                        raise ValueError(f"Unconfigured composition values in {region}/{name}")
+                    counts = values.value_counts()
+                    samples[name] = dict(rows=len(values), categories=[
+                        dict(value=value, **definition, rows=int(counts.get(value, 0)),
+                             fraction=float(counts.get(value, 0) / len(values)) if len(values) else 0.)
+                        for value, definition in definitions.items()])
+                self.composition[region] = samples
 
     # ---------------------------
     # Masks & efficiencies
@@ -190,8 +152,8 @@ class ValidationAnalyzer:
             mask = np.ones(len(df_block), dtype=bool)
             for var, (lo, hi) in wp.window_cuts.items():
                 mask &= (df_block[var].to_numpy() > lo) & (df_block[var].to_numpy() < hi)
-            return mask
-        return self._apply_window_cuts_block(df_block, wp.window_cuts)
+            return mask & pass_fixed_cuts(df_block, wp.meta.get("fixed_cuts", {}))
+        return self._apply_window_cuts_block(df_block, wp.window_cuts) & pass_fixed_cuts(df_block, wp.meta.get("fixed_cuts", {}))
 
     @staticmethod
     def _efficiency(sel: np.ndarray, weights: np.ndarray) -> float:
@@ -304,23 +266,32 @@ class ValidationAnalyzer:
     def _save(self, fig: plt.Figure, path: str) -> None:
         save_plot(fig, path, self.plot_style)
 
-    def _annotate_plot(self, ax, region, title="", context=""):
+    def _annotate_plot(self, ax, region, title="", context="", categories=None):
         info = (self.plot_style or {}).get("info_box")
         if info is not None:
             content = [TextArea(region, textprops=info.get("heading", {}))]
-            content.extend(TextArea(text, textprops=info.get("text", {})) for text in (title, context) if text)
+            if info.get("show_details", True):
+                content.extend(TextArea(text, textprops=info.get("text", {})) for text in (title, context) if text)
             box = AnchoredOffsetbox(child=VPacker(children=content, align="left", pad=0, sep=4),
                                    **dict({"loc": "upper left"}, **info.get("box", {})))
             box.patch.set(**info.get("frame", {}))
             ax.add_artist(box)
             ax.set_title("")
-            return
-        heading = region
-        if title:
-            heading += (" | " if heading else "") + title
-        if context:
-            heading += ("\n" if heading else "") + context
-        ax.set_title(heading, fontsize="small", pad=35)
+        else:
+            heading = region
+            if title:
+                heading += (" | " if heading else "") + title
+            if context:
+                heading += ("\n" if heading else "") + context
+            ax.set_title(heading, fontsize="small", pad=35)
+        if region in self.composition:
+            samples = {name: sample for name, sample in self.composition[region].items()
+                       if categories is None or name in categories}
+            settings = self.plot_style["composition"]
+            ax.add_artist(AnchoredOffsetbox(child=composition_panel(samples, settings),
+                                           bbox_transform=ax.transAxes,
+                                           **dict({"loc": "lower right", "frameon": False},
+                                                  **settings.get("box", {}))))
 
     def _categories(self, block):
         if self.processes is None:
@@ -362,7 +333,8 @@ class ValidationAnalyzer:
         for reg in self.regions:
             reg_mask = self._mask_region(reg)
             block = self.df if reg_mask.all() else self.df.loc[reg_mask]
-            weights = self._effective_weights(reg_mask)
+            weights = (block[self.roc_weight_col].to_numpy() if self.roc_weight_col
+                       else self._effective_weights(reg_mask))
             categories = self._categories(block)
             signal = next(name for name in categories if self._is_signal(name))
             backgrounds = [name for name in categories if not self._is_signal(name)]
@@ -384,6 +356,8 @@ class ValidationAnalyzer:
                                          signal_efficiency=sig_eff, fake_rate=bkg_eff,
                                          signal_error=sig_err, fake_error=bkg_err,
                                          signal_neff=sig_neff, background_neff=bkg_neff,
+                                         signal_sumw=float(weights[sig_mask].sum()),
+                                         background_sumw=float(weights[bkg_mask].sum()),
                                          signal_rows=int(sig_mask.sum()), background_rows=int(bkg_mask.sum()),
                                          signal_pass_rows=int((passed & sig_mask).sum()),
                                          background_pass_rows=int((passed & bkg_mask).sum())))
@@ -415,6 +389,10 @@ class ValidationAnalyzer:
             add_legend(ax, self.plot_style)
             self._save(fig, os.path.join(outdir, f"{filename_prefix}roc_region-{reg}.png"))
             pd.DataFrame(rows).to_csv(os.path.join(outdir, f"{filename_prefix}roc_region-{reg}.csv"), index=False)
+            if reg in self.composition:
+                with open(os.path.join(outdir, f"{filename_prefix}composition_region-{reg}.json"), "w") as handle:
+                    json.dump(dict(region=reg, basis="unweighted selected candidates before ID", samples=self.composition[reg]),
+                              handle, indent=2)
 
     # ---------------------------
     # 2) Efficiency vs variable
@@ -460,10 +438,12 @@ class ValidationAnalyzer:
 
                 def draw(data, filename, ylabel="Efficiency", title=""):
                     groups = list(data.groupby(["source", "wp", "category"], sort=False))
+                    backgrounds = [name for name in data.category.unique() if not self._is_signal(name)]
+                    paired_styles = self._wp_styles(backgrounds[0]) if per_process and len(backgrounds) == 1 else None
                     fig, axes, panel_size = series_panels(len(groups), self.plot_style)
                     for index, ((source, name, category), points) in enumerate(groups):
                         axis = axes[index // panel_size]
-                        color, marker = styles[category][(source, name)]
+                        color, marker = (paired_styles or styles[category])[(source, name)]
                         wp = next(wp for wp in self.wp_sources[source] if wp.name == name)
                         role = "signal" if self._is_signal(category) else "background"
                         # Offsets separate coincident entries without changing bin membership or CSV values.
@@ -484,7 +464,8 @@ class ValidationAnalyzer:
                     for axis in axes:
                         axis.set(xlabel=labels.get(var, var), ylabel=ylabel,
                                  ylim=(self.plot_style or {}).get("efficiency_ylim", (0, 1.1)), xscale=xscale)
-                        self._annotate_plot(axis, reg, title=title, context=self.label if not per_process else "")
+                        self._annotate_plot(axis, reg, title=title, context=self.label if not per_process else "",
+                                            categories=data.category.unique())
                         if self.processes and not x_errors:
                             axis.text(0, -.10, "Markers offset within bins", transform=axis.transAxes, fontsize="x-small")
                         if overlay_signal:
@@ -589,10 +570,8 @@ class ValidationAnalyzer:
                         # N−1 cuts: remove 'var' from cuts
                         nm1_cuts = {k: v for k, v in wp.window_cuts.items()
                                     if k != var}
-                        if nm1_cuts:
-                            nm1_mask = self._pass_wp(reg_df, WP(wp.name, nm1_cuts, wp.meta))
-                        else:
-                            nm1_mask = np.ones(len(reg_df), dtype=bool)
+                        nm1_meta = dict(wp.meta, fixed_cuts={key: value for key, value in wp.meta.get("fixed_cuts", {}).items() if key != var})
+                        nm1_mask = self._pass_wp(reg_df, WP(wp.name, nm1_cuts, nm1_meta))
 
                         fig, ax = plt.subplots()
 
@@ -712,34 +691,6 @@ def ValidateIDAnalysis(**kwargs):
         console.rule(f"[yellow]Region: {region}")
         region_dir = os.path.join(inputdir, region)
 
-        # --- Load validation data ---
-        inputs = datasets or {name: {"path": os.path.join(region_dir, "valid", f"{name}.parquet"),
-                                    "is_signal": name == "signal"} for name in ("signal", "background")}
-        parts = []
-        for name, spec in inputs.items():
-            paths = spec["path"] if isinstance(spec["path"], (list, tuple)) else [spec["path"]]
-            paths = [path.format(region=region) for path in paths]
-            # Older PyArrow cannot infer the filesystem from a one-item path list.
-            frame = pd.read_parquet(paths[0] if len(paths) == 1 else paths,
-                                    columns=kwargs.get("input_columns"))
-            if spec.get("requirement"):
-                frame = frame.query(spec["requirement"])
-            if kwargs.get("region_definition"):
-                frame = frame.query(kwargs["region_definition"][region]["requirement"])
-            if frame.empty:
-                raise ValueError(f"No validation candidates for {region}/{name}")
-            frame = frame.assign(is_signal=bool(spec["is_signal"]), region=region, process=name)
-            if kwargs.get("unit_weights", False) or "weight" not in frame:
-                frame["weight"] = 1.0
-            parts.append(frame)
-        df = pd.concat(parts, ignore_index=True)
-        del parts, frame
-        define_variables(df, kwargs.get("define_variable", {}))
-        if requirement:
-            df = df.query(requirement).copy()
-        if df.empty:
-            raise ValueError(f"No validation candidates for {region}")
-
         # --- Resolve WP JSON paths for this region ---
         if wp_sources_cfg is not None:
             wp_paths: Dict[str, str] = {}
@@ -767,6 +718,68 @@ def ValidateIDAnalysis(**kwargs):
             options = (wp_sources_cfg or {}).get(src_name, {})
             wp_sources[src_name] = load_configured_wps(path, {} if isinstance(options, str) else options)
 
+        columns = kwargs.get("input_columns")
+        if columns is not None:
+            extra = {var for wps in wp_sources.values() for wp in wps for var in wp.meta.get("fixed_cuts", {})}
+            extra.update((kwargs.get("roc_reweight") or {}).get("binning", {}))
+            composition = (kwargs.get("plot_style") or {}).get("composition", {})
+            if composition.get("enabled", False):
+                extra.add(composition["column"])
+            columns = list(dict.fromkeys([*columns, *sorted(extra)]))
+
+        # --- Load validation data ---
+        inputs = datasets or {name: {"path": os.path.join(region_dir, "valid", f"{name}.parquet"),
+                                    "is_signal": name == "signal"} for name in ("signal", "background")}
+        parts = []
+        for name, spec in inputs.items():
+            paths = spec["path"] if isinstance(spec["path"], (list, tuple)) else [spec["path"]]
+            paths = [path.format(region=region) for path in paths]
+            # Older PyArrow cannot infer the filesystem from a one-item path list.
+            frame = pd.read_parquet(paths[0] if len(paths) == 1 else paths,
+                                    columns=columns)
+            if spec.get("requirement"):
+                frame = frame.query(spec["requirement"])
+            if kwargs.get("region_definition"):
+                frame = frame.query(kwargs["region_definition"][region]["requirement"])
+            if frame.empty:
+                raise ValueError(f"No validation candidates for {region}/{name}")
+            frame = frame.assign(is_signal=bool(spec["is_signal"]), region=region, process=name)
+            if kwargs.get("unit_weights", False) or "weight" not in frame:
+                frame["weight"] = 1.0
+            parts.append(frame)
+        df = pd.concat(parts, ignore_index=True)
+        del parts, frame
+        define_variables(df, kwargs.get("define_variable", {}))
+        if requirement:
+            df = df.query(requirement).copy()
+        if df.empty:
+            raise ValueError(f"No validation candidates for {region}")
+
+        reg_out = os.path.join(outdir, region)
+        print_id_table({region: wp_sources}, os.path.join(reg_out, "cutbased_id.md"), kwargs.get("id_requirement", requirement),
+                       kwargs.get("region_definition"))
+
+        roc_reweight = kwargs.get("roc_reweight")
+        if roc_reweight:
+            source, target = roc_reweight["source"], roc_reweight["target"]
+            if not datasets or source == target or any(name not in datasets or datasets[name]["is_signal"]
+                                                      for name in (source, target)):
+                raise ValueError("ROC reweighting requires distinct named background source and target samples")
+            source_mask = df.process == source
+            columns = list(dict.fromkeys([*roc_reweight["binning"], "weight"]))
+            weights, report = kinematic_weights(df.loc[source_mask, columns], df.loc[df.process == target, columns],
+                                                roc_reweight["binning"])
+            df["__roc_weight"] = df["weight"]
+            df.loc[source_mask, "__roc_weight"] = weights
+            report.update(source=source, target=target, region=region, scope="ROC only; before ID cuts",
+                          base_weights="unit" if kwargs.get("unit_weights", False) else "weight",
+                          uncertainty="Efficiency errors condition on the fitted weight map")
+            with open(os.path.join(reg_out, "roc_reweighting.json"), "w") as handle:
+                json.dump(report, handle, indent=2)
+            if report["target_weight_without_source_support"] > 0 or report["target_weight_outside_range"] > 0:
+                console.print(f"[yellow]{region}: incomplete {source}/{target} kinematic support; "
+                              "see roc_reweighting.json[/yellow]")
+
         if id_corrections is not None:
             reference = ValidationAnalyzer(df, wp_sources, plot_style=kwargs.get("plot_style"))
             checks = []
@@ -792,6 +805,7 @@ def ValidateIDAnalysis(**kwargs):
 
         options = dict(processes=datasets, connect_sources=kwargs.get("connect_sources", ()),
                        dedicated_wps=kwargs.get("dedicated_wps", False), regions=[region],
+                       roc_weight_col="__roc_weight" if roc_reweight else None,
                        plot_style=kwargs.get("plot_style"))
 
         # --- Build analyzer ---

@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from workflow.plotting import add_legend, configure_style, save_plot
+from workflow.working_points import normalize_fixed_cuts, pass_fixed_cuts, load_configured_wps, print_id_table
 import xml.etree.ElementTree as ET
 
 import ROOT
@@ -191,7 +192,7 @@ def train_cutbased_tmva_sequential_inmem(
     train_signal_path, train_bkg_path, valid_signal_path, valid_bkg_path,
     variables, target_efficiencies, outdir, train_ratio=0.8, weight_col="weight",
     tmva_cycles=60, tmva_popsize=120, random_seed=12345, tag="Default", n_workers = 1, n_signal = 9e19, n_background=9e19, isolation_denominator="unspecified", efficiency_tolerance=0.03,
-    plot_style=None,
+    plot_style=None, fixed_cuts=None,
 ):
     configure_style(plot_style)
     ensure_dir(outdir)
@@ -210,6 +211,11 @@ def train_cutbased_tmva_sequential_inmem(
     # Validation retains signed physical weights, independent of training reweighting.
     sig_va = pd.read_parquet(valid_signal_path)
     bkg_va = pd.read_parquet(valid_bkg_path)
+    fixed_cuts = {name: normalize_fixed_cuts(cuts) for name, cuts in (fixed_cuts or {}).items()}
+    # Check fixed-cut inputs before starting expensive optimization.
+    for cuts in fixed_cuts.values():
+        pass_fixed_cuts(sig_va, cuts)
+        pass_fixed_cuts(bkg_va, cuts)
     for df in (sig_tr, bkg_tr):
         if not np.isfinite(df.to_numpy()).all() or (df[weight_col] < 0).any() or df[weight_col].sum() <= 0:
             raise ValueError("TMVA inputs must be finite with nonnegative training weights")
@@ -250,13 +256,16 @@ def train_cutbased_tmva_sequential_inmem(
         print(window_cuts)
 
         cuts_one_sided = to_one_sided(window_cuts, directions)
-        ms = passes(sig_va, var_list, cuts_one_sided, directions)
-        mb = passes(bkg_va, var_list, cuts_one_sided, directions)
+        wp_name = f"WP{int(eff_target*100)}"
+        fixed = fixed_cuts.get(wp_name, {})
+        ms = passes(sig_va, var_list, cuts_one_sided, directions) & pass_fixed_cuts(sig_va, fixed)
+        mb = passes(bkg_va, var_list, cuts_one_sided, directions) & pass_fixed_cuts(bkg_va, fixed)
         eff_s_val = weighted_efficiency(ms, sig_va["weight"].values)
         eff_b_val = weighted_efficiency(mb, bkg_va["weight"].values)
         roc_points.append((eff_b_val, eff_s_val, eff_target))
 
-        WPs[f"WP{int(eff_target*100)}"] = {
+        WPs[wp_name] = {
+            "fixed_cuts": fixed,
             "eff_selected_from_tmva": selected_efficiency,
             "requested_efficiency": eff_target,
             "cuts": {v: None if not np.isfinite(cuts_one_sided[v]) else float(cuts_one_sided[v])
@@ -329,6 +338,8 @@ def train_cutbased_tmva_sequential_inmem(
 
     with open(os.path.join(outdir, f"CutBased_WPs_{tag}_TMVA_seq.json"), "w") as f:
         json.dump(WPs, f, indent=2)
+    print_id_table({os.path.basename(outdir): {tag: load_configured_wps(f.name)}},
+                   os.path.join(outdir, f"CutBased_WPs_{tag}_TMVA_seq.md"))
 
     return {"WPs": WPs, "roc": os.path.join(outdir, f"{tag}_ROC_curve.png")}
 
@@ -369,6 +380,7 @@ def TrainCutBasedID_TMVAAnalysis(**kwargs):
                 isolation_denominator=kwargs.get("isolation_denominator", "unspecified"),
                 efficiency_tolerance=kwargs.get("efficiency_tolerance", 0.03),
                 plot_style=kwargs.get("plot_style"),
+                fixed_cuts=kwargs.get("fixed_cuts", {}).get(tag, {}),
                 n_workers=n_workers,
                 n_signal=n_signal,
                 n_background=n_background

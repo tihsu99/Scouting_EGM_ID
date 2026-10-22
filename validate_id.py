@@ -9,6 +9,7 @@ import yaml
 
 from workflow.InspectDistribution import InspectDistributionAnalysis
 from workflow.ValidateID import ValidateIDAnalysis
+from workflow.working_points import configured_wp_sources
 
 
 def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=None,
@@ -24,7 +25,7 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
                  outputdir=str(Path(outputdir).resolve()), config_dir=str(config_path.parent), region="{region}")
     correction_lib = str(Path(correction_lib or preparation["correction_lib"]).resolve())
     regions = cfg.get("regions", preparation["regions"])
-    sources = deepcopy(cfg["wp_sources"])
+    sources = configured_wp_sources(base, cfg)
     artifacts = {"correction_lib": correction_lib}
     if id_correctionlib:
         artifacts["id_correctionlib"] = str(Path(id_correctionlib).resolve())
@@ -100,6 +101,7 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
                                datasets=selected, regions=regions, wp_sources=sources,
                                region_definition=base["region_definition"],
                                plot_style=plot_style,
+                               id_requirement=cfg.get("correctionlib", {}).get("requirement"),
                                id_correctionlib=artifacts.get("id_correctionlib"),
                                label=comparison.get("label", name), **cfg["validation"])
     return str(output)

@@ -188,6 +188,47 @@ def training_weights(frame, mode):
     return weights.copy()
 
 
+def kinematic_weights(source, target, binning, weight_col="weight"):
+    """Match source to target on shared histogram support, preserving source sumw."""
+    variables = list(binning)
+    if not variables:
+        raise ValueError("Kinematic reweighting needs at least one variable")
+    bins = [edges(binning[v]) for v in variables]
+    histograms = []
+    for frame in (source, target):
+        weights = frame[weight_col].to_numpy(dtype=float)
+        if not np.isfinite(weights).all() or (weights < 0).any() or weights.sum() <= 0:
+            raise ValueError("Kinematic reweighting requires finite, nonnegative weights with positive total")
+        histograms.append(np.histogramdd(frame[variables].to_numpy(), bins=bins, weights=weights)[0])
+    hs, ht = histograms
+    if hs.sum() <= 0 or ht.sum() <= 0:
+        raise ValueError("Empty source/target support in reweighting range")
+    ratio = np.divide(ht / ht.sum(), hs / hs.sum(), out=np.zeros_like(hs), where=hs > 0)
+    indices, valid = [], np.ones(len(source), dtype=bool)
+    for var, bins_v in zip(variables, bins):
+        values = source[var].to_numpy()
+        index = np.searchsorted(bins_v, values, side="right") - 1
+        index[values == bins_v[-1]] = len(bins_v) - 2
+        valid &= np.isfinite(values) & (index >= 0) & (index < len(bins_v) - 1)
+        indices.append(np.clip(index, 0, len(bins_v) - 2))
+    factors = np.where(valid, ratio[tuple(indices)], 0.0)
+    weights = source[weight_col].to_numpy(dtype=float) * factors
+    if weights.sum() <= 0:
+        raise ValueError("No common source/target support for kinematic reweighting")
+    scale = source[weight_col].sum() / weights.sum()
+    weights *= scale
+    after = np.histogramdd(source[variables].to_numpy(), bins=bins, weights=weights)[0]
+    report = {"variables": variables, "edges": [b.tolist() for b in bins],
+              "ratio": ratio.tolist(), "normalization": float(scale),
+              "source_before": hs.tolist(), "target_histogram": ht.tolist(), "source_after": after.tolist(),
+              "target_weight_without_source_support": float(ht[hs <= 0].sum() / ht.sum()),
+              "target_weight_outside_range": float(max(0., 1. - ht.sum() / target[weight_col].sum())),
+              "source_rows_outside_range": int((~valid).sum()),
+              "source_rows_zero_weight": int((weights == 0).sum()),
+              "source_effective_entries": float(weights.sum() ** 2 / np.square(weights).sum())}
+    return weights, report
+
+
 def reweight_training(signal, background, target, binning, outdir):
     """Fit on training data only; zero unsupported cells and report lost coverage."""
     if not target or str(target).lower() == "none":
@@ -195,38 +236,13 @@ def reweight_training(signal, background, target, binning, outdir):
     target = str(target).lower()
     if target not in ("signal", "background"):
         raise ValueError("kinematic_reweighting must be SIGNAL, BACKGROUND, or none")
-    variables = list(binning)
-    bins = [edges(binning[v]) for v in variables]
     frames = {"signal": signal, "background": background}
     source = "signal" if target == "background" else "background"
-    histograms = {name: np.histogramdd(df[variables].to_numpy(), bins=bins,
-                                      weights=df.training_weight)[0] for name, df in frames.items()}
-    hs, ht = histograms[source], histograms[target]
-    if hs.sum() <= 0 or ht.sum() <= 0:
-        raise ValueError("Empty training support in reweighting range")
-    ratio = np.divide(ht / ht.sum(), hs / hs.sum(), out=np.zeros_like(hs), where=hs > 0)
-    df = frames[source]
-    indices, valid = [], np.ones(len(df), dtype=bool)
-    for var, bins_v in zip(variables, bins):
-        values = df[var].to_numpy()
-        index = np.searchsorted(bins_v, values, side="right") - 1
-        index[values == bins_v[-1]] = len(bins_v) - 2
-        valid &= np.isfinite(values) & (index >= 0) & (index < len(bins_v) - 1)
-        indices.append(np.clip(index, 0, len(bins_v) - 2))
-    factors = np.where(valid, ratio[tuple(indices)], 0.0)
-    original = df.training_weight.sum()
-    df["training_weight"] *= factors
-    if df.training_weight.sum() <= 0:
-        raise ValueError("No common signal/background training support")
-    df["training_weight"] *= original / df.training_weight.sum()
+    weights, report = kinematic_weights(frames[source], frames[target], binning, "training_weight")
+    frames[source]["training_weight"] = weights
+    report.update(source=source, target=target)
     path = Path(outdir)
     path.mkdir(parents=True, exist_ok=True)
-    after = np.histogramdd(df[variables].to_numpy(), bins=bins, weights=df.training_weight)[0]
-    report = {"source": source, "target": target, "variables": variables,
-              "edges": [b.tolist() for b in bins], "ratio": ratio.tolist(),
-              "source_before": hs.tolist(), "target_histogram": ht.tolist(), "source_after": after.tolist(),
-              "target_weight_without_source_support": float(ht[hs <= 0].sum() / ht.sum()),
-              "source_rows_outside_range": int((~valid).sum())}
     (path / "reweighting.json").write_text(json.dumps(report, indent=2) + "\n")
 
 

@@ -1,0 +1,295 @@
+# Run with inspect_distributions.py after merge_parquet.py.
+# Production QA: each of the 16 Winter25 HT/PTG bins has its own unit-area curve.
+# No cross-section weighting is applied here; use photon_gj_pipeline.yaml for ID tuning.
+# All curves are solid. PTG 10-100 / 100-200 / 200+ use blue / orange / green families.
+# Photon isolation is absolute in GeV. The ScoutingPhoton branch is trkIso, not trackIso.
+# Unfiltered truth views retain unexpected categories for diagnosis; dedicated views
+# select status 0, 1, or 3. All views use the same streaming pass through each sample.
+file_pattern: merged.parquet
+batch_size: 100000
+workers: 4
+progress: true
+max_rows_per_sample: null
+requirement: pt > 15
+selection_label: ScoutingPhoton; $p_T > 15$ GeV; no ID cut
+formats:
+- pdf
+- png
+yscales:
+- linear
+- log
+process:
+  GJ_Winter25_HT_10to40_PTG_10to100:
+    label: HT 10-40, PTG 10-100
+    samples:
+    - GJ_Winter25_HT_10to40_PTG_10to100
+    color: '#08306B'
+    linestyle: '-'
+  GJ_Winter25_HT_40to100_PTG_10to100:
+    label: HT 40-100, PTG 10-100
+    samples:
+    - GJ_Winter25_HT_40to100_PTG_10to100
+    color: '#08519C'
+    linestyle: '-'
+  GJ_Winter25_HT_100to200_PTG_10to100:
+    label: HT 100-200, PTG 10-100
+    samples:
+    - GJ_Winter25_HT_100to200_PTG_10to100
+    color: '#2171B5'
+    linestyle: '-'
+  GJ_Winter25_HT_200to400_PTG_10to100:
+    label: HT 200-400, PTG 10-100
+    samples:
+    - GJ_Winter25_HT_200to400_PTG_10to100
+    color: '#4292C6'
+    linestyle: '-'
+  GJ_Winter25_HT_400to600_PTG_10to100:
+    label: HT 400-600, PTG 10-100
+    samples:
+    - GJ_Winter25_HT_400to600_PTG_10to100
+    color: '#3185A0'
+    linestyle: '-'
+  GJ_Winter25_HT_600to1000_PTG_10to100:
+    label: HT 600-1000, PTG 10-100
+    samples:
+    - GJ_Winter25_HT_600to1000_PTG_10to100
+    color: '#48A9C5'
+    linestyle: '-'
+  GJ_Winter25_HT_1000_PTG_10to100:
+    label: HT 1000+, PTG 10-100
+    samples:
+    - GJ_Winter25_HT_1000_PTG_10to100
+    color: '#72B7CE'
+    linestyle: '-'
+  GJ_Winter25_HT_40to200_PTG_100to200:
+    label: HT 40-200, PTG 100-200
+    samples:
+    - GJ_Winter25_HT_40to200_PTG_100to200
+    color: '#7F2704'
+    linestyle: '-'
+  GJ_Winter25_HT_200to400_PTG_100to200:
+    label: HT 200-400, PTG 100-200
+    samples:
+    - GJ_Winter25_HT_200to400_PTG_100to200
+    color: '#A63603'
+    linestyle: '-'
+  GJ_Winter25_HT_400to600_PTG_100to200:
+    label: HT 400-600, PTG 100-200
+    samples:
+    - GJ_Winter25_HT_400to600_PTG_100to200
+    color: '#D94801'
+    linestyle: '-'
+  GJ_Winter25_HT_600to1000_PTG_100to200:
+    label: HT 600-1000, PTG 100-200
+    samples:
+    - GJ_Winter25_HT_600to1000_PTG_100to200
+    color: '#F16913'
+    linestyle: '-'
+  GJ_Winter25_HT_1000_PTG_100to200:
+    label: HT 1000+, PTG 100-200
+    samples:
+    - GJ_Winter25_HT_1000_PTG_100to200
+    color: '#F99B4A'
+    linestyle: '-'
+  GJ_Winter25_HT_40to400_PTG_200:
+    label: HT 40-400, PTG 200+
+    samples:
+    - GJ_Winter25_HT_40to400_PTG_200
+    color: '#00441B'
+    linestyle: '-'
+  GJ_Winter25_HT_400to600_PTG_200:
+    label: HT 400-600, PTG 200+
+    samples:
+    - GJ_Winter25_HT_400to600_PTG_200
+    color: '#006D2C'
+    linestyle: '-'
+  GJ_Winter25_HT_600to1000_PTG_200:
+    label: HT 600-1000, PTG 200+
+    samples:
+    - GJ_Winter25_HT_600to1000_PTG_200
+    color: '#238B45'
+    linestyle: '-'
+  GJ_Winter25_HT_1000_PTG_200:
+    label: HT 1000+, PTG 200+
+    samples:
+    - GJ_Winter25_HT_1000_PTG_200
+    color: '#41AB5D'
+    linestyle: '-'
+region_definition:
+  Inclusive:
+    requirement: (abs(eta) < 1.4442) | ((abs(eta) > 1.5666) & (abs(eta) < 2.5))
+    label: Barrel + endcap; ECAL gap excluded
+  Barrel:
+    requirement: abs(eta) < 1.4442
+    label: Barrel, $|\eta| < 1.4442$
+  Endcap:
+    requirement: (abs(eta) > 1.5666) & (abs(eta) < 2.5)
+    label: Endcap, $1.5666 < |\eta| < 2.5$
+  Inclusive_status0:
+    requirement: ((abs(eta) < 1.4442) | ((abs(eta) > 1.5666) & (abs(eta) < 2.5))) & (status == 0)
+    label: Barrel + endcap; ECAL gap excluded; status 0
+  Inclusive_status1:
+    requirement: ((abs(eta) < 1.4442) | ((abs(eta) > 1.5666) & (abs(eta) < 2.5))) & (status == 1)
+    label: Barrel + endcap; ECAL gap excluded; status 1
+  Inclusive_status3:
+    requirement: ((abs(eta) < 1.4442) | ((abs(eta) > 1.5666) & (abs(eta) < 2.5))) & (status == 3)
+    label: Barrel + endcap; ECAL gap excluded; status 3
+  Barrel_status0:
+    requirement: (abs(eta) < 1.4442) & (status == 0)
+    label: Barrel, $|\eta| < 1.4442$; status 0
+  Barrel_status1:
+    requirement: (abs(eta) < 1.4442) & (status == 1)
+    label: Barrel, $|\eta| < 1.4442$; status 1
+  Barrel_status3:
+    requirement: (abs(eta) < 1.4442) & (status == 3)
+    label: Barrel, $|\eta| < 1.4442$; status 3
+  Endcap_status0:
+    requirement: ((abs(eta) > 1.5666) & (abs(eta) < 2.5)) & (status == 0)
+    label: Endcap, $1.5666 < |\eta| < 2.5$; status 0
+  Endcap_status1:
+    requirement: ((abs(eta) > 1.5666) & (abs(eta) < 2.5)) & (status == 1)
+    label: Endcap, $1.5666 < |\eta| < 2.5$; status 1
+  Endcap_status3:
+    requirement: ((abs(eta) > 1.5666) & (abs(eta) < 2.5)) & (status == 3)
+    label: Endcap, $1.5666 < |\eta| < 2.5$; status 3
+define_variable:
+  E: pt*cosh(eta)
+inspect_variable:
+  pt:
+    label: Photon $p_T$ [GeV]
+    binning:
+    - 10
+    - 15
+    - 20
+    - 30
+    - 50
+    - 80
+    - 120
+    - 200
+    - 300
+    - 500
+    - 700
+    - 1000
+    - 1500
+    - 2000
+    - 3000
+    - 5000
+    - 10000
+    xscale: log
+  pt_low:
+    expression: pt
+    label: Photon $p_T$ [GeV]
+    binning:
+    - 10
+    - 200
+    - 76
+  eta:
+    label: Photon $\eta$
+    binning:
+    - -2.5
+    - 2.5
+    - 50
+  phi:
+    label: Photon $\phi$ [rad]
+    binning:
+    - -3.141592653589793
+    - 3.141592653589793
+    - 64
+  sigmaIetaIeta:
+    label: $\sigma_{i\eta i\eta}$
+    binning:
+    - 0
+    - 0.06
+    - 60
+  r9:
+    label: $R_9$
+    binning:
+    - 0
+    - 1.2
+    - 60
+  hOverE:
+    label: $H/E$
+    binning:
+    - 0
+    - 0.5
+    - 50
+  ecalIso:
+    label: ECAL isolation [GeV]
+    binning:
+    - 0
+    - 50
+    - 50
+  hcalIso:
+    label: HCAL isolation [GeV]
+    binning:
+    - 0
+    - 50
+    - 50
+  rho:
+    expression: '`ScoutingRho.fixedGridRhoFastjetAll`'
+    label: $\rho$ [GeV]
+    binning:
+    - 0
+    - 80
+    - 40
+  nPU:
+    expression: '`Pileup.nPU`'
+    label: Pileup interactions (candidate-weighted)
+    binning:
+    - -0.5
+    - 99.5
+    - 50
+  status:
+    label: Photon truth category
+    binning:
+    - -0.5
+    - 3.5
+    - 4
+    tick_labels:
+      0: Unmatched
+      1: Prompt
+      2: Unexpected
+      3: Other matched
+  trkIso:
+    label: Track isolation [GeV]
+    binning:
+    - 0
+    - 50
+    - 50
+  E:
+    label: $E = p_T\cosh(\eta)$ [GeV]
+    binning:
+    - 10
+    - 20
+    - 50
+    - 100
+    - 200
+    - 500
+    - 1000
+    - 2000
+    - 5000
+    - 10000
+    - 20000
+    xscale: log
+plot_style:
+  rc_params:
+    figure.figsize:
+    - 15
+    - 9
+    font.size: 18
+    legend.fontsize: 9
+    legend.title_fontsize: 12
+    savefig.dpi: 150
+  legend:
+    loc: upper left
+    bbox_to_anchor:
+    - 1.01
+    - 1.0
+    frameon: false
+    borderaxespad: 0
+  cms_label:
+    label: Preliminary
+    data: false
+    com: 13.6
+    loc: 0
+    fontsize: 20

@@ -154,6 +154,13 @@ def build_correction_set(base, validation, calibration, wps_by_region):
                     expression = compiler.compile(f"`{variable}`")
                     lower, upper = (">", "<") if wp.meta.get("strict", False) else (">=", "<=")
                     cuts[variable] = f"(({expression}{lower}{low!r})*({expression}{upper}{high!r}))"
+                for variable, bounds in wp.meta.get("fixed_cuts", {}).items():
+                    expression = compiler.compile(f"`{variable}`")
+                    terms = [cuts[variable]] if variable in cuts else []
+                    for bound, value in bounds.items():
+                        operator = ">=" if bound == "min" else "<="
+                        terms.append(f"({expression}{operator}{value!r})")
+                    cuts[variable] = "(" + "*".join(terms) + ")"
                 branches.setdefault(key, {})[region] = cuts
                 metadata[key] = dict(source=source, wp=wp.name, label=wp.meta.get("label", wp.name))
     corrections = []
