@@ -1,11 +1,14 @@
 """Shared sample normalization, event splitting, and training weights."""
 import json
+from collections.abc import Mapping
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 from tqdm import tqdm
+
+from workflow.sampling import load_random_sample
 
 
 def edges(spec):
@@ -85,8 +88,8 @@ def sample_normalizations(sample_paths, normalization):
 
 
 def load_samples(inputdir, process, n_files=-1, normalization=None, columns=None,
-                 max_rows_per_sample=None, batch_size=100000, progress=False):
-    """Load samples; an optional prefix cap applies before cuts and event splitting."""
+                 max_rows_per_sample=None, batch_size=100000, progress=False, sampling=None):
+    """Load samples with a prefix cap or explicitly requested, rescaled random sampling."""
     if max_rows_per_sample is not None and (
             isinstance(max_rows_per_sample, bool) or not isinstance(max_rows_per_sample, int)
             or (max_rows_per_sample < 1 and max_rows_per_sample != -1)):
@@ -95,8 +98,13 @@ def load_samples(inputdir, process, n_files=-1, normalization=None, columns=None
     if isinstance(batch_size, bool) or not isinstance(batch_size, int) or batch_size < 1:
         raise ValueError("batch_size must be a positive integer")
     normalization = normalization or {}
-    # Prefix truncation has no preselection generator sum for physical yields.
-    if limit is not None and normalization:
+    if sampling is not None:
+        if not isinstance(sampling, Mapping) or sampling.get("method") != "random":
+            raise ValueError("sampling.method must be random")
+        if set(sampling) - {"method", "seed", "cache_dir"}:
+            raise ValueError("Unknown sampling options; use method, seed, cache_dir")
+    # A prefix has no known random inclusion probability to correct physical yields.
+    if limit is not None and normalization and sampling is None:
         raise ValueError("max_rows_per_sample cannot be combined with cross-section normalization")
     weight_column = normalization.get("weight_column", "Generator.weight")
     names = sorted({s for cfg in process.values() for s in cfg["samples"]})
@@ -110,6 +118,12 @@ def load_samples(inputdir, process, n_files=-1, normalization=None, columns=None
         sample_paths[sample] = paths
     normalized = sample_normalizations(sample_paths, normalization) if normalization else {}
     for sample, paths in sample_paths.items():
+        if sampling is not None:
+            frames[sample], reports[sample] = load_random_sample(
+                paths, columns, limit, sampling.get("seed", 42), sample,
+                sampling.get("cache_dir"), batch_size, progress)
+            frames[sample]["sample"] = sample
+            continue
         parts, read_paths = [], []
         rows_read = 0
         for path in paths:
@@ -154,6 +168,7 @@ def load_samples(inputdir, process, n_files=-1, normalization=None, columns=None
             frame["weight"] = frame[weight_column].to_numpy(dtype=float) * normalized[sample]["normalization_factor"]
         else:
             frame["weight"] = 1.0
+        frame["weight"] *= reports[sample].get("sampling_rescale", 1.0)
         if not np.isfinite(frame["weight"]).all():
             raise ValueError(f"Non-finite weights in {sample}")
     selected = {}

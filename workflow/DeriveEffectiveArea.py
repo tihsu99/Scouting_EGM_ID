@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -154,6 +155,7 @@ def DeriveEffectiveAreaAnalysis(**kwargs):
         inputdir, process, n_files, kwargs.get("normalization"),
         columns=kwargs.get("input_columns"), max_rows_per_sample=limit,
         batch_size=kwargs.get("batch_size", 100000),
+        sampling=kwargs.get("sampling"), progress=kwargs.get("progress", False),
     )
     for sample, info in report.items():
         print(f"Read {info['rows']:,} input candidates from {sample}")
@@ -166,6 +168,14 @@ def DeriveEffectiveAreaAnalysis(**kwargs):
                                kwargs.get("split_columns"))
     df_all["calibration_weight"] = training_weights(df_all, kwargs.get("calibration_weight_mode", "nonnegative"))
     print(f"Loaded {len(df_all):,} calibration rows")
+    for sample, info in report.items():
+        weights = df_all.loc[df_all["sample"] == sample, "calibration_weight"].to_numpy()
+        info.update(calibration_rows=len(weights), calibration_sumw=float(weights.sum()),
+                    calibration_effective_entries=float(weights.sum() ** 2 / np.square(weights).sum())
+                    if np.square(weights).sum() > 0 else 0.0)
+    with open(os.path.join(plotdir, "normalization.json"), "w") as handle:
+        json.dump(report, handle, indent=2)
+        handle.write("\n")
 
     # --- Config extraction ---
     corrections = []

@@ -364,6 +364,14 @@ shared:
   n_files: -1
 workflow_overrides:
   DeriveEffectiveArea:
+    # Uniform candidate sampling before truth/kinematic cuts and event splitting.
+    # Weights include population_rows / sampled_rows; event receipt sums stay unchanged.
+    max_rows_per_sample: 2000000
+    sampling:
+      method: random
+      seed: 42
+      cache_dir: outputs/cache/photon_gj_calibration
+    progress: true
     input_columns: &id002
     - pt
     - eta
