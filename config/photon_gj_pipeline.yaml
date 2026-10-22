@@ -366,7 +366,7 @@ workflow_overrides:
   DeriveEffectiveArea:
     # Uniform candidate sampling before truth/kinematic cuts and event splitting.
     # Weights include population_rows / sampled_rows; event receipt sums stay unchanged.
-    max_rows_per_sample: 2000000
+    max_rows_per_sample: 500000
     sampling:
       method: random
       seed: 42
