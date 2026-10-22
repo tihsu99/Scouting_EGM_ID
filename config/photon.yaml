@@ -12,7 +12,7 @@ train_ratio: 0.8
 split_columns: [sample, run, luminosityBlock, event]
 normalization: {}
 max_rows_per_sample: 2000000
-batch_size: 100000
+batch_size: 1000000
 region_definition:
   Barrel:
     requirement: abs(eta) < 1.4442
