@@ -8,7 +8,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 from tqdm import tqdm
 
-from workflow.sampling import load_random_sample
+from workflow.sampling import load_sample_subset
 
 
 def edges(spec):
@@ -89,7 +89,7 @@ def sample_normalizations(sample_paths, normalization):
 
 def load_samples(inputdir, process, n_files=-1, normalization=None, columns=None,
                  max_rows_per_sample=None, batch_size=100000, progress=False, sampling=None):
-    """Load samples with a prefix cap or explicitly requested, rescaled random sampling."""
+    """Load samples with a legacy prefix cap or explicitly configured, rescaled subsets."""
     if max_rows_per_sample is not None and (
             isinstance(max_rows_per_sample, bool) or not isinstance(max_rows_per_sample, int)
             or (max_rows_per_sample < 1 and max_rows_per_sample != -1)):
@@ -99,11 +99,11 @@ def load_samples(inputdir, process, n_files=-1, normalization=None, columns=None
         raise ValueError("batch_size must be a positive integer")
     normalization = normalization or {}
     if sampling is not None:
-        if not isinstance(sampling, Mapping) or sampling.get("method") != "random":
-            raise ValueError("sampling.method must be random")
+        if not isinstance(sampling, Mapping) or sampling.get("method") not in ("random", "prefix"):
+            raise ValueError("sampling.method must be random or prefix")
         if set(sampling) - {"method", "seed", "cache_dir"}:
             raise ValueError("Unknown sampling options; use method, seed, cache_dir")
-    # A prefix has no known random inclusion probability to correct physical yields.
+    # Prefix rescaling requires explicit opt-in to its representativeness assumption.
     if limit is not None and normalization and sampling is None:
         raise ValueError("max_rows_per_sample cannot be combined with cross-section normalization")
     weight_column = normalization.get("weight_column", "Generator.weight")
@@ -119,9 +119,9 @@ def load_samples(inputdir, process, n_files=-1, normalization=None, columns=None
     normalized = sample_normalizations(sample_paths, normalization) if normalization else {}
     for sample, paths in sample_paths.items():
         if sampling is not None:
-            frames[sample], reports[sample] = load_random_sample(
+            frames[sample], reports[sample] = load_sample_subset(
                 paths, columns, limit, sampling.get("seed", 42), sample,
-                sampling.get("cache_dir"), batch_size, progress)
+                sampling.get("cache_dir"), batch_size, progress, method=sampling["method"])
             frames[sample]["sample"] = sample
             continue
         parts, read_paths = [], []

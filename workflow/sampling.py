@@ -1,4 +1,4 @@
-"""Bounded, uniform candidate sampling with reusable raw-column caches."""
+"""Bounded candidate subsets with reusable raw-column caches."""
 import hashlib
 import json
 from pathlib import Path
@@ -11,11 +11,14 @@ import pyarrow.parquet as pq
 from tqdm import tqdm
 
 
-def load_random_sample(paths, columns, limit, seed, sample, cache_dir, batch_size, progress):
-    """Sample before cuts; return original row positions and inverse inclusion probability."""
+def load_sample_subset(paths, columns, limit, seed, sample, cache_dir, batch_size, progress,
+                       method="random"):
+    """Select before cuts; prefix rescaling assumes representative source ordering."""
     if limit is None:
-        raise ValueError("Random sampling requires a positive max_rows_per_sample")
-    if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
+        raise ValueError("Subset loading requires a positive max_rows_per_sample")
+    if method not in ("random", "prefix"):
+        raise ValueError("sampling.method must be random or prefix")
+    if method == "random" and (isinstance(seed, bool) or not isinstance(seed, int) or seed < 0):
         raise ValueError("sampling.seed must be a nonnegative integer")
     sources = []
     for path in paths:
@@ -23,6 +26,9 @@ def load_random_sample(paths, columns, limit, seed, sample, cache_dir, batch_siz
         sources.append(dict(path=str(path.resolve()), size=stat.st_size, mtime_ns=stat.st_mtime_ns))
     identity = dict(version=1, sample=sample, sources=sources,
                     columns=None if columns is None else list(columns), limit=limit, seed=seed)
+    if method == "prefix":
+        identity.pop("seed")
+        identity["method"] = method
     digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     cache = Path(cache_dir).expanduser().resolve() / sample / f"{digest}.parquet" if cache_dir else None
     receipt = Path(str(cache) + ".json") if cache else None
@@ -50,9 +56,12 @@ def load_random_sample(paths, columns, limit, seed, sample, cache_dir, batch_siz
     if total == 0:
         raise ValueError(f"No candidates in {sample}")
     size = min(total, limit)
-    # range sampling avoids allocating a permutation of the full production.
-    sample_seed = hashlib.sha256(f"{seed}:{sample}".encode()).hexdigest()
-    indices = np.array(sorted(random.Random(sample_seed).sample(range(total), size)), dtype=np.int64)
+    if method == "prefix":
+        indices = np.arange(size, dtype=np.int64)
+    else:
+        # range sampling avoids allocating a permutation of the full production.
+        sample_seed = hashlib.sha256(f"{seed}:{sample}".encode()).hexdigest()
+        indices = np.array(sorted(random.Random(sample_seed).sample(range(total), size)), dtype=np.int64)
     parts, offset, source_rows = [], 0, 0
     with tqdm(total=size, desc=f"Sample {sample}", unit="kept", unit_scale=True,
               dynamic_ncols=True, disable=not progress) as bar:
@@ -69,8 +78,9 @@ def load_random_sample(paths, columns, limit, seed, sample, cache_dir, batch_siz
                 # Stream adjacent groups together so small row groups do not limit batch size.
                 for run in np.split(groups, np.flatnonzero(np.diff(groups) > 1) + 1):
                     position = bounds[run[0]]
+                    read_batch_size = min(batch_size, size - int(position)) if method == "prefix" else batch_size
                     for batch in parquet.iter_batches(row_groups=run.tolist(), columns=columns,
-                                                      batch_size=batch_size, use_threads=False):
+                                                      batch_size=read_batch_size, use_threads=False):
                         stop = position + batch.num_rows
                         positions = indices[indices.searchsorted(position):indices.searchsorted(stop)]
                         source_rows += batch.num_rows
@@ -81,6 +91,8 @@ def load_random_sample(paths, columns, limit, seed, sample, cache_dir, batch_siz
                             parts.append(selected)
                             bar.update(len(selected))
                         position = stop
+                        if method == "prefix" and position >= size:
+                            break
             offset += count
     frame = pd.concat(parts, ignore_index=True)
     if len(frame) != size:
@@ -90,9 +102,12 @@ def load_random_sample(paths, columns, limit, seed, sample, cache_dir, batch_siz
         if stat.st_size != expected["size"] or stat.st_mtime_ns != expected["mtime_ns"]:
             raise ValueError(f"Input changed while sampling: {path}")
     report = dict(files=[str(p) for p in paths], rows=size, population_rows=total,
-                  sampling_method="uniform_without_replacement", sampling_seed=seed,
+                  sampling_method="prefix" if method == "prefix" else "uniform_without_replacement",
+                  sampling_seed=seed if method == "random" else None,
                   sampling_fraction=size / total, sampling_rescale=total / size,
                   cache_file=str(cache) if cache else None, cache_hit=False)
+    if method == "prefix":
+        report["sampling_rescale_assumption"] = "The first K candidate rows represent the full sample."
     if cache:
         cache.parent.mkdir(parents=True, exist_ok=True)
         # Publish complete files only; an interrupted write cannot become a cache hit.

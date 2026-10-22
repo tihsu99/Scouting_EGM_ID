@@ -365,12 +365,11 @@ shared:
 workflow_overrides:
   DeriveEffectiveArea:
     batch_size: 1000000
-    # Uniform candidate sampling before truth/kinematic cuts and event splitting.
-    # Weights include population_rows / sampled_rows; event receipt sums stay unchanged.
+    # Keep the first candidates before truth/kinematic cuts and event splitting.
+    # N/K rescaling assumes the prefix is representative; event receipt sums stay unchanged.
     max_rows_per_sample: 500000
     sampling:
-      method: random
-      seed: 42
+      method: prefix
       cache_dir: outputs/cache/photon_gj_calibration
     progress: true
     input_columns: &id002
