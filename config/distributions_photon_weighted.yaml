@@ -1,0 +1,21 @@
+# Weighted pT inspection: reuse bin colors, regions and XSDB values from existing profiles.
+# All candidate rows are required; a prefix cap has no matching event denominator.
+# Filled layers show bin contributions; the black outline shows their sum.
+base_config: distributions_photon.yaml
+normalization_config: photon_gj_pipeline.yaml
+histogram_normalization: yield_density
+plot_kind: stacked
+max_rows_per_sample: null
+define_variable: {}
+selection_label: 'ScoutingPhoton; $p_T > 15$ GeV; XSDB LO weights (Summer24 reference)'
+total:
+  label: All GJ bins
+  color: '#111111'
+  linestyle: '-'
+  linewidth: 2.8
+inspect_variable:
+  pt:
+    label: 'Photon $p_T$ [GeV]'
+    ylabel: 'Weighted photon candidates / GeV'
+    binning: [15, 20, 30, 50, 80, 100, 150, 200, 300, 500, 800, 1200, 2000, 5000, 10000]
+    xscale: log
