@@ -1,344 +1,216 @@
-# Winter25 GJ photon study: use with postprocess.py and merged Parquet receipts.
-# Both classes use the same 16 sources; status selects disjoint photon candidates.
-# XSDB values are Summer24 LO references, not new Winter25 measurements.
-# The corresponding Summer24 and Winter25 McM generator fragments match exactly.
-# XSDB automatic records use GenXSecAnalyzer final cross sections; do not multiply
-# the McM filter_efficiency or match_efficiency again.
+# Standalone Winter25 GJ photon analysis: calibrate, prepare, train, validate.
+# All analysis settings live here; no base_config or external YAML is loaded.
+# prepare plots workflow.InspectDistribution.inspect_variable after corrections.
+# shared controls both calibration and preparation, including the cached prefix cap.
+# Prefix N/K rescaling assumes representative source ordering; event sums come from receipts.
+# Isolation is absolute in GeV, with no division by E or pT.
+# XSDB values are Summer24 LO references; matched McM generator fragments are recorded below.
+# XSDB automatic values are final cross sections: do not multiply filtering efficiencies again.
 # Reference: https://github.com/cms-sw/xsecdb/blob/2e1c4721dcb78edb423dbe833326c3220a127c47/scripts/xsec_calc_auto/3_convert_outputs.py
-# Weight = Generator.weight * cross_section_pb / preselection sum_genweight.
-# luminosity_pb=1 gives pb-equivalent weights. Each HT/PTG bin is its own group.
-# provenance is audit metadata; das_events_reference is NOT a weight denominator.
-# No candidate-row cap is allowed for physical normalization. Training retains the
-# base photon pT/eta reweighting; held-out validation retains physical weights.
-base_config: photon.yaml
-steps:
-- calibrate
-- prepare
-- train
-- validate
+# das_events_reference is audit metadata, not the normalization denominator.
+steps: [calibrate, prepare, train, validate]
 default_wp: null
 signal_requirement: (status == 1) & (pt > 15) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.5666) & (abs(eta) < 2.5)))
-background_requirement: ((status == 0) | (status == 3)) & (pt > 15) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.5666) & (abs(eta)
-  < 2.5)))
+background_requirement: ((status == 0) | (status == 3)) & (pt > 15) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.5666)
+  & (abs(eta) < 2.5)))
 training_weight_mode: nonnegative
-normalization:
-  weight_column: Generator.weight
-  luminosity_pb: 1.0
-  groups:
-    GJ_Winter25_HT_1000_PTG_100to200:
-      samples:
-      - GJ_Winter25_HT_1000_PTG_100to200
-      cross_section_pb: 1.628
-      provenance:
-        xsdb_id: 68d111aff8a546d59c3d82f8
-        source_dataset: /GJ-4Jets_Bin-HT-1000-PTG-100to200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAOD-140X_mcRun3_2024_realistic_v26-v2/MINIAODSIM
-        source_mcm_request: GEN-RunIII2024Summer24MiniAOD-00039
-        source_uncertainty_pb: 0.004918
-        source_status: new
-        source_accuracy: LO
-        source_comments: Automatically computed
-        source_modified_on: '2025-09-22 09:06:55'
-        target_dataset: /GJ-4Jets_Bin-HT-1000-PTG-100to200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
-        target_generation_request: JME-Run3Winter25wmLHEGS-00010
-        matching_source_generation_requests:
-        - GEN-RunIII2024Summer24wmLHEGS-00042
-        - JME-RunIII2024Summer24wmLHEGS-00009
-        generator_fragment_sha256: 89463e4997687ecbd463914340d984880014e3b30770326d35169ff3df138514
-        das_events_reference: 3952525
-    GJ_Winter25_HT_1000_PTG_10to100:
-      samples:
-      - GJ_Winter25_HT_1000_PTG_10to100
-      cross_section_pb: 15.12
-      provenance:
-        xsdb_id: 68d111aff8a546d59c3d82f9
-        source_dataset: /GJ-4Jets_Bin-HT-1000-PTG-10to100_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAOD-140X_mcRun3_2024_realistic_v26-v2/MINIAODSIM
-        source_mcm_request: GEN-RunIII2024Summer24MiniAOD-00047
-        source_uncertainty_pb: 0.04551
-        source_status: new
-        source_accuracy: LO
-        source_comments: Automatically computed
-        source_modified_on: '2025-09-22 09:06:55'
-        target_dataset: /GJ-4Jets_Bin-HT-1000-PTG-10to100_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
-        target_generation_request: JME-Run3Winter25wmLHEGS-00005
-        matching_source_generation_requests:
-        - GEN-RunIII2024Summer24wmLHEGS-00050
-        generator_fragment_sha256: 8e3fe5edabb870a8a16a061dc14b635cfafbcadc52f379a2d7dd2a46d710bf0b
-        das_events_reference: 4049836
-    GJ_Winter25_HT_1000_PTG_200:
-      samples:
-      - GJ_Winter25_HT_1000_PTG_200
-      cross_section_pb: 1.019
-      provenance:
-        xsdb_id: 68d111aff8a546d59c3d82fa
-        source_dataset: /GJ-4Jets_Bin-HT-1000-PTG-200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAOD-140X_mcRun3_2024_realistic_v26-v2/MINIAODSIM
-        source_mcm_request: GEN-RunIII2024Summer24MiniAOD-00038
-        source_uncertainty_pb: 0.003082
-        source_status: new
-        source_accuracy: LO
-        source_comments: Automatically computed
-        source_modified_on: '2025-09-22 09:06:55'
-        target_dataset: /GJ-4Jets_Bin-HT-1000-PTG-200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
-        target_generation_request: JME-Run3Winter25wmLHEGS-00014
-        matching_source_generation_requests:
-        - GEN-RunIII2024Summer24wmLHEGS-00041
-        - JME-RunIII2024Summer24wmLHEGS-00012
-        generator_fragment_sha256: 0c16e4acf3f17116a35e0103fe6df0ac2e780d7bf4808c1d2b8b242fa40dbc72
-        das_events_reference: 4402271
-    GJ_Winter25_HT_100to200_PTG_10to100:
-      samples:
-      - GJ_Winter25_HT_100to200_PTG_10to100
-      cross_section_pb: 32190
-      provenance:
-        xsdb_id: 68d111aff8a546d59c3d82fb
-        source_dataset: /GJ-4Jets_Bin-HT-100to200-PTG-10to100_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAOD-140X_mcRun3_2024_realistic_v26-v2/MINIAODSIM
-        source_mcm_request: GEN-RunIII2024Summer24MiniAOD-00042
-        source_uncertainty_pb: 93.54
-        source_status: new
-        source_accuracy: LO
-        source_comments: Automatically computed
-        source_modified_on: '2025-09-22 09:06:55'
-        target_dataset: /GJ-4Jets_Bin-HT-100to200-PTG-10to100_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
-        target_generation_request: JME-Run3Winter25wmLHEGS-00002
-        matching_source_generation_requests:
-        - GEN-RunIII2024Summer24wmLHEGS-00045
-        generator_fragment_sha256: c4d05a006c51708d48892ef4e04a9628fd2e4b41c2af0499cb4d2b1290250cbd
-        das_events_reference: 9648532
-    GJ_Winter25_HT_10to40_PTG_10to100:
-      samples:
-      - GJ_Winter25_HT_10to40_PTG_10to100
-      cross_section_pb: 164100
-      provenance:
-        xsdb_id: 6a471aaf97bd07c1bceeb2a9
-        source_dataset: /GJ-4Jets_Bin-HT-10to40-PTG-10to100_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAODv6-150X_mcRun3_2024_realistic_v2-v2/MINIAODSIM
-        source_mcm_request: GEN-RunIII2024Summer24MiniAODv6-00658
-        source_uncertainty_pb: 152.6
-        source_status: new
-        source_accuracy: LO
-        source_comments: Automatically computed
-        source_modified_on: '2026-07-03 02:13:03'
-        target_dataset: /GJ-4Jets_Bin-HT-10to40-PTG-10to100_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
-        target_generation_request: JME-Run3Winter25wmLHEGS-00034
-        matching_source_generation_requests:
-        - GEN-RunIII2024Summer24wmLHEGS-00639
-        generator_fragment_sha256: d1fa27bc527d7b2543961cc0dc2a234e64e45fdbe1f0062a0ef88b867a3fcd0c
-        das_events_reference: 10415100
-    GJ_Winter25_HT_200to400_PTG_100to200:
-      samples:
-      - GJ_Winter25_HT_200to400_PTG_100to200
-      cross_section_pb: 200
-      provenance:
-        xsdb_id: 68d111aff8a546d59c3d82fc
-        source_dataset: /GJ-4Jets_Bin-HT-200to400-PTG-100to200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAOD-140X_mcRun3_2024_realistic_v26-v2/MINIAODSIM
-        source_mcm_request: GEN-RunIII2024Summer24MiniAOD-00041
-        source_uncertainty_pb: 0.6008
-        source_status: new
-        source_accuracy: LO
-        source_comments: Automatically computed
-        source_modified_on: '2025-09-22 09:06:55'
-        target_dataset: /GJ-4Jets_Bin-HT-200to400-PTG-100to200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
-        target_generation_request: JME-Run3Winter25wmLHEGS-00007
-        matching_source_generation_requests:
-        - GEN-RunIII2024Summer24wmLHEGS-00044
-        - JME-RunIII2024Summer24wmLHEGS-00006
-        generator_fragment_sha256: 55d7bb163aaeb485d011a7e98141bd87cdcb0cde96fb0602f40e24d91e311f1a
-        das_events_reference: 10066734
-    GJ_Winter25_HT_200to400_PTG_10to100:
-      samples:
-      - GJ_Winter25_HT_200to400_PTG_10to100
-      cross_section_pb: 5498
-      provenance:
-        xsdb_id: 68d111aff8a546d59c3d82fd
-        source_dataset: /GJ-4Jets_Bin-HT-200to400-PTG-10to100_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAOD-140X_mcRun3_2024_realistic_v26-v2/MINIAODSIM
-        source_mcm_request: GEN-RunIII2024Summer24MiniAOD-00040
-        source_uncertainty_pb: 16.21
-        source_status: new
-        source_accuracy: LO
-        source_comments: Automatically computed
-        source_modified_on: '2025-09-22 09:06:55'
-        target_dataset: /GJ-4Jets_Bin-HT-200to400-PTG-10to100_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
-        target_generation_request: JME-Run3Winter25wmLHEGS-00003
-        matching_source_generation_requests:
-        - GEN-RunIII2024Summer24wmLHEGS-00043
-        generator_fragment_sha256: 62f75bc87f780c6d7b63c463cd6d4b440a333be9c47b2ca3a3ae6d9db29350be
-        das_events_reference: 7909096
-    GJ_Winter25_HT_400to600_PTG_100to200:
-      samples:
-      - GJ_Winter25_HT_400to600_PTG_100to200
-      cross_section_pb: 29.77
-      provenance:
-        xsdb_id: 68d111aff8a546d59c3d82fe
-        source_dataset: /GJ-4Jets_Bin-HT-400to600-PTG-100to200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAOD-140X_mcRun3_2024_realistic_v26-v2/MINIAODSIM
-        source_mcm_request: GEN-RunIII2024Summer24MiniAOD-00034
-        source_uncertainty_pb: 0.08917
-        source_status: new
-        source_accuracy: LO
-        source_comments: Automatically computed
-        source_modified_on: '2025-09-22 09:06:55'
-        target_dataset: /GJ-4Jets_Bin-HT-400to600-PTG-100to200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
-        target_generation_request: JME-Run3Winter25wmLHEGS-00008
-        matching_source_generation_requests:
-        - GEN-RunIII2024Summer24wmLHEGS-00037
-        - JME-RunIII2024Summer24wmLHEGS-00007
-        generator_fragment_sha256: f52efaf3d5beee05b4bca71adc0d4bcc7a598de1b19b15a5f6e30bf175b1464a
-        das_events_reference: 7264465
-    GJ_Winter25_HT_400to600_PTG_10to100:
-      samples:
-      - GJ_Winter25_HT_400to600_PTG_10to100
-      cross_section_pb: 482.3
-      provenance:
-        xsdb_id: 68d111aff8a546d59c3d8300
-        source_dataset: /GJ-4Jets_Bin-HT-400to600-PTG-10to100_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAOD-140X_mcRun3_2024_realistic_v26-v4/MINIAODSIM
-        source_mcm_request: GEN-RunIII2024Summer24MiniAOD-00046
-        source_uncertainty_pb: 1.432
-        source_status: new
-        source_accuracy: LO
-        source_comments: Automatically computed
-        source_modified_on: '2025-09-22 09:06:55'
-        target_dataset: /GJ-4Jets_Bin-HT-400to600-PTG-10to100_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
-        target_generation_request: JME-Run3Winter25wmLHEGS-00015
-        matching_source_generation_requests:
-        - GEN-RunIII2024Summer24wmLHEGS-00049
-        generator_fragment_sha256: 81b2c527466744729c5e24ee2b2ec22c2e9bc5646b0a2c2f726ab272ea2bb48a
-        das_events_reference: 8283684
-    GJ_Winter25_HT_400to600_PTG_200:
-      samples:
-      - GJ_Winter25_HT_400to600_PTG_200
-      cross_section_pb: 11.75
-      provenance:
-        xsdb_id: 68d111b0f8a546d59c3d8301
-        source_dataset: /GJ-4Jets_Bin-HT-400to600-PTG-200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAOD-140X_mcRun3_2024_realistic_v26-v2/MINIAODSIM
-        source_mcm_request: GEN-RunIII2024Summer24MiniAOD-00035
-        source_uncertainty_pb: 0.03561
-        source_status: new
-        source_accuracy: LO
-        source_comments: Automatically computed
-        source_modified_on: '2025-09-22 09:06:56'
-        target_dataset: /GJ-4Jets_Bin-HT-400to600-PTG-200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
-        target_generation_request: JME-Run3Winter25wmLHEGS-00012
-        matching_source_generation_requests:
-        - GEN-RunIII2024Summer24wmLHEGS-00038
-        - JME-RunIII2024Summer24wmLHEGS-00010
-        generator_fragment_sha256: 2d02d0bfe2b04da71c92fb2bf2708517a58d5d210e1cdcf081638e685b1f5223
-        das_events_reference: 8344168
-    GJ_Winter25_HT_40to100_PTG_10to100:
-      samples:
-      - GJ_Winter25_HT_40to100_PTG_10to100
-      cross_section_pb: 123400
-      provenance:
-        xsdb_id: 68d111b0f8a546d59c3d8302
-        source_dataset: /GJ-4Jets_Bin-HT-40to100-PTG-10to100_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAOD-140X_mcRun3_2024_realistic_v26-v2/MINIAODSIM
-        source_mcm_request: GEN-RunIII2024Summer24MiniAOD-00043
-        source_uncertainty_pb: 353.9
-        source_status: new
-        source_accuracy: LO
-        source_comments: Automatically computed
-        source_modified_on: '2025-09-22 09:06:56'
-        target_dataset: /GJ-4Jets_Bin-HT-40to100-PTG-10to100_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
-        target_generation_request: JME-Run3Winter25wmLHEGS-00001
-        matching_source_generation_requests:
-        - GEN-RunIII2024Summer24wmLHEGS-00046
-        generator_fragment_sha256: e2d535e025bd7c682aa57723c93b0a42c4d9caa4d930cb13c1a606baf868aa89
-        das_events_reference: 11262165
-    GJ_Winter25_HT_40to200_PTG_100to200:
-      samples:
-      - GJ_Winter25_HT_40to200_PTG_100to200
-      cross_section_pb: 554.3
-      provenance:
-        xsdb_id: 68d111b0f8a546d59c3d8303
-        source_dataset: /GJ-4Jets_Bin-HT-40to200-PTG-100to200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAOD-140X_mcRun3_2024_realistic_v26-v2/MINIAODSIM
-        source_mcm_request: GEN-RunIII2024Summer24MiniAOD-00044
-        source_uncertainty_pb: 1.629
-        source_status: new
-        source_accuracy: LO
-        source_comments: Automatically computed
-        source_modified_on: '2025-09-22 09:06:56'
-        target_dataset: /GJ-4Jets_Bin-HT-40to200-PTG-100to200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
-        target_generation_request: JME-Run3Winter25wmLHEGS-00006
-        matching_source_generation_requests:
-        - GEN-RunIII2024Summer24wmLHEGS-00047
-        - JME-RunIII2024Summer24wmLHEGS-00005
-        generator_fragment_sha256: 3ed77f5378448fbd9bd25d579006d49f09d601ffc2b8fe49853eab1a8f2eddea
-        das_events_reference: 10288626
-    GJ_Winter25_HT_40to400_PTG_200:
-      samples:
-      - GJ_Winter25_HT_40to400_PTG_200
-      cross_section_pb: 43.76
-      provenance:
-        xsdb_id: 68d111b0f8a546d59c3d8304
-        source_dataset: /GJ-4Jets_Bin-HT-40to400-PTG-200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAOD-140X_mcRun3_2024_realistic_v26-v2/MINIAODSIM
-        source_mcm_request: GEN-RunIII2024Summer24MiniAOD-00045
-        source_uncertainty_pb: 0.1321
-        source_status: new
-        source_accuracy: LO
-        source_comments: Automatically computed
-        source_modified_on: '2025-09-22 09:06:56'
-        target_dataset: /GJ-4Jets_Bin-HT-40to400-PTG-200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
-        target_generation_request: JME-Run3Winter25wmLHEGS-00011
-        matching_source_generation_requests:
-        - GEN-RunIII2024Summer24wmLHEGS-00048
-        - JME-RunIII2024Summer24wmLHEGS-00013
-        generator_fragment_sha256: b8beafc85f684af04e77a0f8294c62361713ca41028070493f2f4a2a6f47b585
-        das_events_reference: 9895049
-    GJ_Winter25_HT_600to1000_PTG_100to200:
-      samples:
-      - GJ_Winter25_HT_600to1000_PTG_100to200
-      cross_section_pb: 9.666
-      provenance:
-        xsdb_id: 68d111b0f8a546d59c3d8305
-        source_dataset: /GJ-4Jets_Bin-HT-600to1000-PTG-100to200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAOD-140X_mcRun3_2024_realistic_v26-v2/MINIAODSIM
-        source_mcm_request: GEN-RunIII2024Summer24MiniAOD-00036
-        source_uncertainty_pb: 0.02903
-        source_status: new
-        source_accuracy: LO
-        source_comments: Automatically computed
-        source_modified_on: '2025-09-22 09:06:56'
-        target_dataset: /GJ-4Jets_Bin-HT-600to1000-PTG-100to200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
-        target_generation_request: JME-Run3Winter25wmLHEGS-00009
-        matching_source_generation_requests:
-        - GEN-RunIII2024Summer24wmLHEGS-00039
-        - JME-RunIII2024Summer24wmLHEGS-00008
-        generator_fragment_sha256: b89dc2ef6d2653dc36d4be69b903c155f4cb858d3971577d92ce4f9beb57da66
-        das_events_reference: 5284626
-    GJ_Winter25_HT_600to1000_PTG_10to100:
-      samples:
-      - GJ_Winter25_HT_600to1000_PTG_10to100
-      cross_section_pb: 117.5
-      provenance:
-        xsdb_id: 68d111b0f8a546d59c3d8306
-        source_dataset: /GJ-4Jets_Bin-HT-600to1000-PTG-10to100_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAOD-140X_mcRun3_2024_realistic_v26-v2/MINIAODSIM
-        source_mcm_request: GEN-RunIII2024Summer24MiniAOD-00048
-        source_uncertainty_pb: 0.352
-        source_status: new
-        source_accuracy: LO
-        source_comments: Automatically computed
-        source_modified_on: '2025-09-22 09:06:56'
-        target_dataset: /GJ-4Jets_Bin-HT-600to1000-PTG-10to100_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
-        target_generation_request: JME-Run3Winter25wmLHEGS-00004
-        matching_source_generation_requests:
-        - GEN-RunIII2024Summer24wmLHEGS-00051
-        generator_fragment_sha256: 68743712fe71f6d9e8fc253612efc4f65acc27179c94a48b2ebc81d1b1b63aa4
-        das_events_reference: 5546583
-    GJ_Winter25_HT_600to1000_PTG_200:
-      samples:
-      - GJ_Winter25_HT_600to1000_PTG_200
-      cross_section_pb: 4.75
-      provenance:
-        xsdb_id: 68d111b0f8a546d59c3d8307
-        source_dataset: /GJ-4Jets_Bin-HT-600to1000-PTG-200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAOD-140X_mcRun3_2024_realistic_v26-v2/MINIAODSIM
-        source_mcm_request: GEN-RunIII2024Summer24MiniAOD-00037
-        source_uncertainty_pb: 0.01436
-        source_status: new
-        source_accuracy: LO
-        source_comments: Automatically computed
-        source_modified_on: '2025-09-22 09:06:56'
-        target_dataset: /GJ-4Jets_Bin-HT-600to1000-PTG-200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
-        target_generation_request: JME-Run3Winter25wmLHEGS-00013
-        matching_source_generation_requests:
-        - GEN-RunIII2024Summer24wmLHEGS-00040
-        - JME-RunIII2024Summer24wmLHEGS-00011
-        generator_fragment_sha256: 6076127bd0356cf568572bb3d5abfbcc02b342f8341173be05f19c47acdc5595
-        das_events_reference: 6941331
-calibration_samples: &id001
+shared:
+  n_files: -1
+  n_workers: 1
+  random_seed: 42
+  train_ratio: 0.8
+  split_columns: [sample, run, luminosityBlock, event]
+  max_rows_per_sample: 2000000
+  batch_size: 1000000
+  region_definition:
+    Barrel:
+      requirement: abs(eta) < 1.4442
+    Endcap:
+      requirement: (abs(eta) > 1.5666) & (abs(eta) < 2.5)
+  plot_style:
+    formats: [pdf, png]
+    max_series_per_panel: 24
+    rc_params:
+      figure.figsize: [12, 9]
+      font.size: 20
+      legend.fontsize: 11
+      savefig.dpi: 150
+    legend:
+      loc: upper center
+      bbox_to_anchor: [0.5, -0.15]
+      ncol: 3
+      frameon: false
+    cms_label:
+      label: Preliminary
+      data: false
+      com: 13.6
+      fontsize: 20
+  sampling:
+    method: prefix
+    cache_dir: outputs/cache/photon_gj_calibration
+  input_columns:
+  - pt
+  - eta
+  - status
+  - hOverE
+  - sigmaIetaIeta
+  - ecalIso
+  - hcalIso
+  - ScoutingRho.fixedGridRhoFastjetAll
+  - run
+  - luminosityBlock
+  - event
+  - Generator.weight
+  progress: true
+workflow:
+  DeriveEffectiveArea:
+    calibration_train_only: true
+    EffectiveArea:
+      HOE_EA:
+        x: '`ScoutingRho.fixedGridRhoFastjetAll`'
+        y: hOverE
+        x_title: $\rho$ [GeV]
+        y_title: $H/E$
+        title: H/E pileup correction
+        eta_bins: [0, 1.0, 1.4442, 2.0, 2.2, 2.3, 2.4, 2.5]
+        y_type: contour95
+        x_bins: [10, 50, 20]
+        fitted_func: y = A1*x + A2
+      IE_EA:
+        x: '`ScoutingRho.fixedGridRhoFastjetAll`'
+        y: ecalIso
+        x_title: $\rho$ [GeV]
+        y_title: $I_{ECAL}$ [GeV]
+        title: ECAL pileup correction
+        eta_bins: [0, 1.0, 1.4442, 2.0, 2.2, 2.3, 2.4, 2.5]
+        y_type: contour95
+        x_bins: [10, 50, 20]
+        fitted_func: y = A1*x + A2
+      IH_EA:
+        x: '`ScoutingRho.fixedGridRhoFastjetAll`'
+        y: hcalIso
+        x_title: $\rho$ [GeV]
+        y_title: $I_{HCAL}$ [GeV]
+        title: HCAL pileup correction
+        eta_bins: [0, 1.0, 1.4442, 2.0, 2.2, 2.3, 2.4, 2.5]
+        y_type: contour95
+        x_bins: [10, 50, 20]
+        fitted_func: y = A1*x + A2
+      IE_pt:
+        x: pt
+        y: ecalIso - IE_EA*`ScoutingRho.fixedGridRhoFastjetAll`
+        x_title: $p_T$ [GeV]
+        y_title: $I_{ECAL}-\rho EA_{ECAL}$ [GeV]
+        title: ECAL pT correction
+        eta_bins: [0, 1.4442, 2.5]
+        y_type: contour95
+        x_bins: [15, 600, 39]
+        fitted_func: y = A1*x + A2
+      IH_pt1:
+        x: pt
+        y: hcalIso - IH_EA*`ScoutingRho.fixedGridRhoFastjetAll`
+        x_title: $p_T$ [GeV]
+        y_title: $I_{HCAL}-\rho EA_{HCAL}$ [GeV]
+        title: HCAL pT correction
+        eta_bins: [0, 1.4442, 2.5]
+        y_type: contour95
+        x_bins: [15, 600, 39]
+        fitted_func: y = A1*x + A2*x**2 + A3
+        coefficient: A1
+      IH_pt2:
+        x: pt
+        y: hcalIso - IH_EA*`ScoutingRho.fixedGridRhoFastjetAll`
+        x_title: $p_T$ [GeV]
+        y_title: $I_{HCAL}-\rho EA_{HCAL}$ [GeV]
+        title: HCAL pT correction
+        eta_bins: [0, 1.4442, 2.5]
+        y_type: contour95
+        x_bins: [15, 600, 39]
+        fitted_func: y = A1*x + A2*x**2 + A3
+        coefficient: A2
+  InspectDistribution:
+    regions: [Barrel, Endcap]
+    kinematic_reweighting: BACKGROUND
+    reweight_binning:
+      pt: [10, 15, 20, 30, 50, 80, 100, 150, 200, 300, 500, 800, 1200, 2000, 5000, 10000]
+      eta: [-2.5, -2.2, -2.0, -1.5666, -1.4442, -1.0, 0, 1.0, 1.4442, 1.5666, 2.0, 2.2, 2.5]
+    stitch_binning: null
+    define_variable:
+      hOverE_calibrated: hOverE - HOE_EA*`ScoutingRho.fixedGridRhoFastjetAll`
+      ecalIso_calibrated:
+        expression: ecalIso - IE_EA*`ScoutingRho.fixedGridRhoFastjetAll` - IE_pt*pt
+        lower: 0
+      hcalIso_calibrated:
+        expression: hcalIso - IH_EA*`ScoutingRho.fixedGridRhoFastjetAll` - IH_pt1*pt - IH_pt2*pt**2
+        lower: 0
+    inspect_variable:
+      pt: [10, 15, 20, 30, 50, 80, 100, 150, 200, 300, 500, 800, 1200, 2000]
+      eta: [-2.5, 2.5, 25]
+      sigmaIetaIeta: [0, 0.05, 50]
+      hOverE_calibrated: [-0.1, 0.2, 30]
+      ecalIso_calibrated: [0, 20, 40]
+      hcalIso_calibrated: [0, 20, 40]
+  TrainCutBasedID_TMVA:
+    weight_col: training_weight
+    isolation_denominator: none
+    efficiency_tolerance: 0.03
+    regions: [Barrel, Endcap]
+    target_efficiencies: [0.7, 0.8, 0.9]
+    n_workers: 4
+    n_signal: 300000
+    n_background: 300000
+    tmva_cycles: 60
+    tmva_popsize: 100
+    random_seed: 12345
+    train_ratio: 0.8
+    n_trials: 2
+    variables:
+      PhotonIso:
+        sigmaIetaIeta:
+          min: 0
+          max: 999999
+          direction: less
+          binning: [0, 0.05, 50]
+        hOverE_calibrated:
+          min: -999999
+          max: 999999
+          direction: less
+          binning: [-0.1, 0.2, 30]
+        ecalIso_calibrated:
+          min: 0
+          max: 999999
+          direction: less
+          binning: [0, 20, 40]
+        hcalIso_calibrated:
+          min: 0
+          max: 999999
+          direction: less
+          binning: [0, 20, 40]
+  ValidateID:
+    regions: [Barrel, Endcap]
+    unit_weights: false
+    dedicated_wps: true
+    allow_empty_slices: true
+    connect_sources: [Optimized(PhotonIso)]
+    label: Winter25 ScoutingPhoton GJ; status 1 vs 0,3; XSDB LO weights (Summer24 reference)
+    pt_regions:
+      pt15to100: [15, 100]
+      pt100to300: [100, 300]
+      pt300to800: [300, 800]
+      pt800plus: [800, null]
+    monitor_eff:
+      pt:
+        label: $p_T$ [GeV]
+        xscale: log
+        binning: [15, 20, 30, 50, 80, 100, 150, 200, 300, 500, 800, 1200, 2000, 5000, 10000]
+      eta:
+        label: $\eta$
+        binning: [-2.5, 2.5, 25]
+      ScoutingRho.fixedGridRhoFastjetAll:
+        label: $\rho$ [GeV]
+        binning: [0, 80, 16]
+    variables: {}
+calibration_samples:
 - GJ_Winter25_HT_1000_PTG_100to200
 - GJ_Winter25_HT_1000_PTG_10to100
 - GJ_Winter25_HT_1000_PTG_200
@@ -357,38 +229,313 @@ calibration_samples: &id001
 - GJ_Winter25_HT_600to1000_PTG_200
 studies:
   photon_gj:
-    signal: *id001
-    background: *id001
-shared:
-  max_rows_per_sample: null
-  n_files: -1
-workflow_overrides:
-  DeriveEffectiveArea:
-    batch_size: 1000000
-    # Keep the first candidates before truth/kinematic cuts and event splitting.
-    # N/K rescaling assumes the prefix is representative; event receipt sums stay unchanged.
-    max_rows_per_sample: 2000000
-    sampling:
-      method: prefix
-      cache_dir: outputs/cache/photon_gj_calibration
-    progress: true
-    input_columns: &id002
-    - pt
-    - eta
-    - status
-    - hOverE
-    - sigmaIetaIeta
-    - ecalIso
-    - hcalIso
-    - ScoutingRho.fixedGridRhoFastjetAll
-    - run
-    - luminosityBlock
-    - event
-    - Generator.weight
-  InspectDistribution:
-    input_columns: *id002
-    kinematic_reweighting: BACKGROUND
-    stitch_binning: null
-  ValidateID:
-    unit_weights: false
-    label: Winter25 ScoutingPhoton GJ; status 1 vs 0,3; XSDB LO weights (Summer24 reference)
+    signal:
+    - GJ_Winter25_HT_1000_PTG_100to200
+    - GJ_Winter25_HT_1000_PTG_10to100
+    - GJ_Winter25_HT_1000_PTG_200
+    - GJ_Winter25_HT_100to200_PTG_10to100
+    - GJ_Winter25_HT_10to40_PTG_10to100
+    - GJ_Winter25_HT_200to400_PTG_100to200
+    - GJ_Winter25_HT_200to400_PTG_10to100
+    - GJ_Winter25_HT_400to600_PTG_100to200
+    - GJ_Winter25_HT_400to600_PTG_10to100
+    - GJ_Winter25_HT_400to600_PTG_200
+    - GJ_Winter25_HT_40to100_PTG_10to100
+    - GJ_Winter25_HT_40to200_PTG_100to200
+    - GJ_Winter25_HT_40to400_PTG_200
+    - GJ_Winter25_HT_600to1000_PTG_100to200
+    - GJ_Winter25_HT_600to1000_PTG_10to100
+    - GJ_Winter25_HT_600to1000_PTG_200
+    background:
+    - GJ_Winter25_HT_1000_PTG_100to200
+    - GJ_Winter25_HT_1000_PTG_10to100
+    - GJ_Winter25_HT_1000_PTG_200
+    - GJ_Winter25_HT_100to200_PTG_10to100
+    - GJ_Winter25_HT_10to40_PTG_10to100
+    - GJ_Winter25_HT_200to400_PTG_100to200
+    - GJ_Winter25_HT_200to400_PTG_10to100
+    - GJ_Winter25_HT_400to600_PTG_100to200
+    - GJ_Winter25_HT_400to600_PTG_10to100
+    - GJ_Winter25_HT_400to600_PTG_200
+    - GJ_Winter25_HT_40to100_PTG_10to100
+    - GJ_Winter25_HT_40to200_PTG_100to200
+    - GJ_Winter25_HT_40to400_PTG_200
+    - GJ_Winter25_HT_600to1000_PTG_100to200
+    - GJ_Winter25_HT_600to1000_PTG_10to100
+    - GJ_Winter25_HT_600to1000_PTG_200
+normalization:
+  weight_column: Generator.weight
+  luminosity_pb: 1.0
+  groups:
+    GJ_Winter25_HT_1000_PTG_100to200:
+      samples: [GJ_Winter25_HT_1000_PTG_100to200]
+      cross_section_pb: 1.628
+      provenance:
+        xsdb_id: 68d111aff8a546d59c3d82f8
+        source_dataset: /GJ-4Jets_Bin-HT-1000-PTG-100to200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAOD-140X_mcRun3_2024_realistic_v26-v2/MINIAODSIM
+        source_mcm_request: GEN-RunIII2024Summer24MiniAOD-00039
+        source_uncertainty_pb: 0.004918
+        source_status: new
+        source_accuracy: LO
+        source_comments: Automatically computed
+        source_modified_on: '2025-09-22 09:06:55'
+        target_dataset: /GJ-4Jets_Bin-HT-1000-PTG-100to200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
+        target_generation_request: JME-Run3Winter25wmLHEGS-00010
+        matching_source_generation_requests: [GEN-RunIII2024Summer24wmLHEGS-00042, JME-RunIII2024Summer24wmLHEGS-00009]
+        generator_fragment_sha256: 89463e4997687ecbd463914340d984880014e3b30770326d35169ff3df138514
+        das_events_reference: 3952525
+    GJ_Winter25_HT_1000_PTG_10to100:
+      samples: [GJ_Winter25_HT_1000_PTG_10to100]
+      cross_section_pb: 15.12
+      provenance:
+        xsdb_id: 68d111aff8a546d59c3d82f9
+        source_dataset: /GJ-4Jets_Bin-HT-1000-PTG-10to100_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAOD-140X_mcRun3_2024_realistic_v26-v2/MINIAODSIM
+        source_mcm_request: GEN-RunIII2024Summer24MiniAOD-00047
+        source_uncertainty_pb: 0.04551
+        source_status: new
+        source_accuracy: LO
+        source_comments: Automatically computed
+        source_modified_on: '2025-09-22 09:06:55'
+        target_dataset: /GJ-4Jets_Bin-HT-1000-PTG-10to100_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
+        target_generation_request: JME-Run3Winter25wmLHEGS-00005
+        matching_source_generation_requests: [GEN-RunIII2024Summer24wmLHEGS-00050]
+        generator_fragment_sha256: 8e3fe5edabb870a8a16a061dc14b635cfafbcadc52f379a2d7dd2a46d710bf0b
+        das_events_reference: 4049836
+    GJ_Winter25_HT_1000_PTG_200:
+      samples: [GJ_Winter25_HT_1000_PTG_200]
+      cross_section_pb: 1.019
+      provenance:
+        xsdb_id: 68d111aff8a546d59c3d82fa
+        source_dataset: /GJ-4Jets_Bin-HT-1000-PTG-200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAOD-140X_mcRun3_2024_realistic_v26-v2/MINIAODSIM
+        source_mcm_request: GEN-RunIII2024Summer24MiniAOD-00038
+        source_uncertainty_pb: 0.003082
+        source_status: new
+        source_accuracy: LO
+        source_comments: Automatically computed
+        source_modified_on: '2025-09-22 09:06:55'
+        target_dataset: /GJ-4Jets_Bin-HT-1000-PTG-200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
+        target_generation_request: JME-Run3Winter25wmLHEGS-00014
+        matching_source_generation_requests: [GEN-RunIII2024Summer24wmLHEGS-00041, JME-RunIII2024Summer24wmLHEGS-00012]
+        generator_fragment_sha256: 0c16e4acf3f17116a35e0103fe6df0ac2e780d7bf4808c1d2b8b242fa40dbc72
+        das_events_reference: 4402271
+    GJ_Winter25_HT_100to200_PTG_10to100:
+      samples: [GJ_Winter25_HT_100to200_PTG_10to100]
+      cross_section_pb: 32190
+      provenance:
+        xsdb_id: 68d111aff8a546d59c3d82fb
+        source_dataset: /GJ-4Jets_Bin-HT-100to200-PTG-10to100_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAOD-140X_mcRun3_2024_realistic_v26-v2/MINIAODSIM
+        source_mcm_request: GEN-RunIII2024Summer24MiniAOD-00042
+        source_uncertainty_pb: 93.54
+        source_status: new
+        source_accuracy: LO
+        source_comments: Automatically computed
+        source_modified_on: '2025-09-22 09:06:55'
+        target_dataset: /GJ-4Jets_Bin-HT-100to200-PTG-10to100_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
+        target_generation_request: JME-Run3Winter25wmLHEGS-00002
+        matching_source_generation_requests: [GEN-RunIII2024Summer24wmLHEGS-00045]
+        generator_fragment_sha256: c4d05a006c51708d48892ef4e04a9628fd2e4b41c2af0499cb4d2b1290250cbd
+        das_events_reference: 9648532
+    GJ_Winter25_HT_10to40_PTG_10to100:
+      samples: [GJ_Winter25_HT_10to40_PTG_10to100]
+      cross_section_pb: 164100
+      provenance:
+        xsdb_id: 6a471aaf97bd07c1bceeb2a9
+        source_dataset: /GJ-4Jets_Bin-HT-10to40-PTG-10to100_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAODv6-150X_mcRun3_2024_realistic_v2-v2/MINIAODSIM
+        source_mcm_request: GEN-RunIII2024Summer24MiniAODv6-00658
+        source_uncertainty_pb: 152.6
+        source_status: new
+        source_accuracy: LO
+        source_comments: Automatically computed
+        source_modified_on: '2026-07-03 02:13:03'
+        target_dataset: /GJ-4Jets_Bin-HT-10to40-PTG-10to100_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
+        target_generation_request: JME-Run3Winter25wmLHEGS-00034
+        matching_source_generation_requests: [GEN-RunIII2024Summer24wmLHEGS-00639]
+        generator_fragment_sha256: d1fa27bc527d7b2543961cc0dc2a234e64e45fdbe1f0062a0ef88b867a3fcd0c
+        das_events_reference: 10415100
+    GJ_Winter25_HT_200to400_PTG_100to200:
+      samples: [GJ_Winter25_HT_200to400_PTG_100to200]
+      cross_section_pb: 200
+      provenance:
+        xsdb_id: 68d111aff8a546d59c3d82fc
+        source_dataset: /GJ-4Jets_Bin-HT-200to400-PTG-100to200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAOD-140X_mcRun3_2024_realistic_v26-v2/MINIAODSIM
+        source_mcm_request: GEN-RunIII2024Summer24MiniAOD-00041
+        source_uncertainty_pb: 0.6008
+        source_status: new
+        source_accuracy: LO
+        source_comments: Automatically computed
+        source_modified_on: '2025-09-22 09:06:55'
+        target_dataset: /GJ-4Jets_Bin-HT-200to400-PTG-100to200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
+        target_generation_request: JME-Run3Winter25wmLHEGS-00007
+        matching_source_generation_requests: [GEN-RunIII2024Summer24wmLHEGS-00044, JME-RunIII2024Summer24wmLHEGS-00006]
+        generator_fragment_sha256: 55d7bb163aaeb485d011a7e98141bd87cdcb0cde96fb0602f40e24d91e311f1a
+        das_events_reference: 10066734
+    GJ_Winter25_HT_200to400_PTG_10to100:
+      samples: [GJ_Winter25_HT_200to400_PTG_10to100]
+      cross_section_pb: 5498
+      provenance:
+        xsdb_id: 68d111aff8a546d59c3d82fd
+        source_dataset: /GJ-4Jets_Bin-HT-200to400-PTG-10to100_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAOD-140X_mcRun3_2024_realistic_v26-v2/MINIAODSIM
+        source_mcm_request: GEN-RunIII2024Summer24MiniAOD-00040
+        source_uncertainty_pb: 16.21
+        source_status: new
+        source_accuracy: LO
+        source_comments: Automatically computed
+        source_modified_on: '2025-09-22 09:06:55'
+        target_dataset: /GJ-4Jets_Bin-HT-200to400-PTG-10to100_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
+        target_generation_request: JME-Run3Winter25wmLHEGS-00003
+        matching_source_generation_requests: [GEN-RunIII2024Summer24wmLHEGS-00043]
+        generator_fragment_sha256: 62f75bc87f780c6d7b63c463cd6d4b440a333be9c47b2ca3a3ae6d9db29350be
+        das_events_reference: 7909096
+    GJ_Winter25_HT_400to600_PTG_100to200:
+      samples: [GJ_Winter25_HT_400to600_PTG_100to200]
+      cross_section_pb: 29.77
+      provenance:
+        xsdb_id: 68d111aff8a546d59c3d82fe
+        source_dataset: /GJ-4Jets_Bin-HT-400to600-PTG-100to200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAOD-140X_mcRun3_2024_realistic_v26-v2/MINIAODSIM
+        source_mcm_request: GEN-RunIII2024Summer24MiniAOD-00034
+        source_uncertainty_pb: 0.08917
+        source_status: new
+        source_accuracy: LO
+        source_comments: Automatically computed
+        source_modified_on: '2025-09-22 09:06:55'
+        target_dataset: /GJ-4Jets_Bin-HT-400to600-PTG-100to200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
+        target_generation_request: JME-Run3Winter25wmLHEGS-00008
+        matching_source_generation_requests: [GEN-RunIII2024Summer24wmLHEGS-00037, JME-RunIII2024Summer24wmLHEGS-00007]
+        generator_fragment_sha256: f52efaf3d5beee05b4bca71adc0d4bcc7a598de1b19b15a5f6e30bf175b1464a
+        das_events_reference: 7264465
+    GJ_Winter25_HT_400to600_PTG_10to100:
+      samples: [GJ_Winter25_HT_400to600_PTG_10to100]
+      cross_section_pb: 482.3
+      provenance:
+        xsdb_id: 68d111aff8a546d59c3d8300
+        source_dataset: /GJ-4Jets_Bin-HT-400to600-PTG-10to100_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAOD-140X_mcRun3_2024_realistic_v26-v4/MINIAODSIM
+        source_mcm_request: GEN-RunIII2024Summer24MiniAOD-00046
+        source_uncertainty_pb: 1.432
+        source_status: new
+        source_accuracy: LO
+        source_comments: Automatically computed
+        source_modified_on: '2025-09-22 09:06:55'
+        target_dataset: /GJ-4Jets_Bin-HT-400to600-PTG-10to100_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
+        target_generation_request: JME-Run3Winter25wmLHEGS-00015
+        matching_source_generation_requests: [GEN-RunIII2024Summer24wmLHEGS-00049]
+        generator_fragment_sha256: 81b2c527466744729c5e24ee2b2ec22c2e9bc5646b0a2c2f726ab272ea2bb48a
+        das_events_reference: 8283684
+    GJ_Winter25_HT_400to600_PTG_200:
+      samples: [GJ_Winter25_HT_400to600_PTG_200]
+      cross_section_pb: 11.75
+      provenance:
+        xsdb_id: 68d111b0f8a546d59c3d8301
+        source_dataset: /GJ-4Jets_Bin-HT-400to600-PTG-200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAOD-140X_mcRun3_2024_realistic_v26-v2/MINIAODSIM
+        source_mcm_request: GEN-RunIII2024Summer24MiniAOD-00035
+        source_uncertainty_pb: 0.03561
+        source_status: new
+        source_accuracy: LO
+        source_comments: Automatically computed
+        source_modified_on: '2025-09-22 09:06:56'
+        target_dataset: /GJ-4Jets_Bin-HT-400to600-PTG-200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
+        target_generation_request: JME-Run3Winter25wmLHEGS-00012
+        matching_source_generation_requests: [GEN-RunIII2024Summer24wmLHEGS-00038, JME-RunIII2024Summer24wmLHEGS-00010]
+        generator_fragment_sha256: 2d02d0bfe2b04da71c92fb2bf2708517a58d5d210e1cdcf081638e685b1f5223
+        das_events_reference: 8344168
+    GJ_Winter25_HT_40to100_PTG_10to100:
+      samples: [GJ_Winter25_HT_40to100_PTG_10to100]
+      cross_section_pb: 123400
+      provenance:
+        xsdb_id: 68d111b0f8a546d59c3d8302
+        source_dataset: /GJ-4Jets_Bin-HT-40to100-PTG-10to100_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAOD-140X_mcRun3_2024_realistic_v26-v2/MINIAODSIM
+        source_mcm_request: GEN-RunIII2024Summer24MiniAOD-00043
+        source_uncertainty_pb: 353.9
+        source_status: new
+        source_accuracy: LO
+        source_comments: Automatically computed
+        source_modified_on: '2025-09-22 09:06:56'
+        target_dataset: /GJ-4Jets_Bin-HT-40to100-PTG-10to100_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
+        target_generation_request: JME-Run3Winter25wmLHEGS-00001
+        matching_source_generation_requests: [GEN-RunIII2024Summer24wmLHEGS-00046]
+        generator_fragment_sha256: e2d535e025bd7c682aa57723c93b0a42c4d9caa4d930cb13c1a606baf868aa89
+        das_events_reference: 11262165
+    GJ_Winter25_HT_40to200_PTG_100to200:
+      samples: [GJ_Winter25_HT_40to200_PTG_100to200]
+      cross_section_pb: 554.3
+      provenance:
+        xsdb_id: 68d111b0f8a546d59c3d8303
+        source_dataset: /GJ-4Jets_Bin-HT-40to200-PTG-100to200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAOD-140X_mcRun3_2024_realistic_v26-v2/MINIAODSIM
+        source_mcm_request: GEN-RunIII2024Summer24MiniAOD-00044
+        source_uncertainty_pb: 1.629
+        source_status: new
+        source_accuracy: LO
+        source_comments: Automatically computed
+        source_modified_on: '2025-09-22 09:06:56'
+        target_dataset: /GJ-4Jets_Bin-HT-40to200-PTG-100to200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
+        target_generation_request: JME-Run3Winter25wmLHEGS-00006
+        matching_source_generation_requests: [GEN-RunIII2024Summer24wmLHEGS-00047, JME-RunIII2024Summer24wmLHEGS-00005]
+        generator_fragment_sha256: 3ed77f5378448fbd9bd25d579006d49f09d601ffc2b8fe49853eab1a8f2eddea
+        das_events_reference: 10288626
+    GJ_Winter25_HT_40to400_PTG_200:
+      samples: [GJ_Winter25_HT_40to400_PTG_200]
+      cross_section_pb: 43.76
+      provenance:
+        xsdb_id: 68d111b0f8a546d59c3d8304
+        source_dataset: /GJ-4Jets_Bin-HT-40to400-PTG-200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAOD-140X_mcRun3_2024_realistic_v26-v2/MINIAODSIM
+        source_mcm_request: GEN-RunIII2024Summer24MiniAOD-00045
+        source_uncertainty_pb: 0.1321
+        source_status: new
+        source_accuracy: LO
+        source_comments: Automatically computed
+        source_modified_on: '2025-09-22 09:06:56'
+        target_dataset: /GJ-4Jets_Bin-HT-40to400-PTG-200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
+        target_generation_request: JME-Run3Winter25wmLHEGS-00011
+        matching_source_generation_requests: [GEN-RunIII2024Summer24wmLHEGS-00048, JME-RunIII2024Summer24wmLHEGS-00013]
+        generator_fragment_sha256: b8beafc85f684af04e77a0f8294c62361713ca41028070493f2f4a2a6f47b585
+        das_events_reference: 9895049
+    GJ_Winter25_HT_600to1000_PTG_100to200:
+      samples: [GJ_Winter25_HT_600to1000_PTG_100to200]
+      cross_section_pb: 9.666
+      provenance:
+        xsdb_id: 68d111b0f8a546d59c3d8305
+        source_dataset: /GJ-4Jets_Bin-HT-600to1000-PTG-100to200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAOD-140X_mcRun3_2024_realistic_v26-v2/MINIAODSIM
+        source_mcm_request: GEN-RunIII2024Summer24MiniAOD-00036
+        source_uncertainty_pb: 0.02903
+        source_status: new
+        source_accuracy: LO
+        source_comments: Automatically computed
+        source_modified_on: '2025-09-22 09:06:56'
+        target_dataset: /GJ-4Jets_Bin-HT-600to1000-PTG-100to200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
+        target_generation_request: JME-Run3Winter25wmLHEGS-00009
+        matching_source_generation_requests: [GEN-RunIII2024Summer24wmLHEGS-00039, JME-RunIII2024Summer24wmLHEGS-00008]
+        generator_fragment_sha256: b89dc2ef6d2653dc36d4be69b903c155f4cb858d3971577d92ce4f9beb57da66
+        das_events_reference: 5284626
+    GJ_Winter25_HT_600to1000_PTG_10to100:
+      samples: [GJ_Winter25_HT_600to1000_PTG_10to100]
+      cross_section_pb: 117.5
+      provenance:
+        xsdb_id: 68d111b0f8a546d59c3d8306
+        source_dataset: /GJ-4Jets_Bin-HT-600to1000-PTG-10to100_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAOD-140X_mcRun3_2024_realistic_v26-v2/MINIAODSIM
+        source_mcm_request: GEN-RunIII2024Summer24MiniAOD-00048
+        source_uncertainty_pb: 0.352
+        source_status: new
+        source_accuracy: LO
+        source_comments: Automatically computed
+        source_modified_on: '2025-09-22 09:06:56'
+        target_dataset: /GJ-4Jets_Bin-HT-600to1000-PTG-10to100_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
+        target_generation_request: JME-Run3Winter25wmLHEGS-00004
+        matching_source_generation_requests: [GEN-RunIII2024Summer24wmLHEGS-00051]
+        generator_fragment_sha256: 68743712fe71f6d9e8fc253612efc4f65acc27179c94a48b2ebc81d1b1b63aa4
+        das_events_reference: 5546583
+    GJ_Winter25_HT_600to1000_PTG_200:
+      samples: [GJ_Winter25_HT_600to1000_PTG_200]
+      cross_section_pb: 4.75
+      provenance:
+        xsdb_id: 68d111b0f8a546d59c3d8307
+        source_dataset: /GJ-4Jets_Bin-HT-600to1000-PTG-200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/RunIII2024Summer24MiniAOD-140X_mcRun3_2024_realistic_v26-v2/MINIAODSIM
+        source_mcm_request: GEN-RunIII2024Summer24MiniAOD-00037
+        source_uncertainty_pb: 0.01436
+        source_status: new
+        source_accuracy: LO
+        source_comments: Automatically computed
+        source_modified_on: '2025-09-22 09:06:56'
+        target_dataset: /GJ-4Jets_Bin-HT-600to1000-PTG-200_Par-dRGJ-0p25_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Winter25MiniAOD-MiniAODv6_150X_mcRun3_2025_realistic_v6-v2/MINIAODSIM
+        target_generation_request: JME-Run3Winter25wmLHEGS-00013
+        matching_source_generation_requests: [GEN-RunIII2024Summer24wmLHEGS-00040, JME-RunIII2024Summer24wmLHEGS-00011]
+        generator_fragment_sha256: 6076127bd0356cf568572bb3d5abfbcc02b342f8341173be05f19c47acdc5595
+        das_events_reference: 6941331

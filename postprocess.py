@@ -35,15 +35,22 @@ def check_manifest(path, inputdir, samples):
         raise ValueError("Input directory contains files outside the selected production manifest")
 
 
-def run(config_path, inputdir, outputdir, steps=None, studies=None, manifest=None, check_only=False):
+def run(config_path, inputdir, outputdir, steps=None, studies=None, manifest=None, check_only=False,
+        correction_lib=None):
     config_path = Path(config_path).resolve()
     cfg = yaml.safe_load(config_path.read_text())
+    if correction_lib is not None:
+        cfg["correction_lib"] = str(Path(correction_lib).expanduser().resolve())
     steps = cfg.get("steps", STEPS) if steps is None else steps
     if not isinstance(steps, (list, tuple)) or not steps or any(step not in STEPS for step in steps):
         raise ValueError(f"steps must be a nonempty list drawn from {STEPS}")
-    base_path = (config_path.parent / cfg["base_config"]).resolve()
-    base = yaml.safe_load(base_path.read_text())
-    workflow = deepcopy(base["workflow"])
+    if "workflow" in cfg and "base_config" in cfg:
+        raise ValueError("Use an inline workflow or base_config, not both")
+    base = {}
+    if "base_config" in cfg:
+        base_path = (config_path.parent / cfg["base_config"]).resolve()
+        base = yaml.safe_load(base_path.read_text())
+    workflow = deepcopy(cfg["workflow"] if "workflow" in cfg else base["workflow"])
     for module, overrides in cfg.get("workflow_overrides", {}).items():
         workflow[module].update(overrides)
     selected = cfg["studies"] if studies is None else {name: cfg["studies"][name] for name in studies}
@@ -142,12 +149,14 @@ def main():
     parser.add_argument("--inputdir", required=True, help="Mounted campaign directory containing sample folders")
     parser.add_argument("--outputdir", required=True)
     parser.add_argument("--manifest", help="Production farm manifest; verifies completeness and receipt provenance")
+    parser.add_argument("--correction-lib", help="Reuse a completed corrections_all.json; keep this override for subsequent stages in the same output directory")
     parser.add_argument("--studies", nargs="+")
     parser.add_argument("--steps", nargs="+", choices=STEPS,
                         help="Override YAML steps; defaults to all stages when YAML omits steps")
     parser.add_argument("--check-only", action="store_true", help="Verify normalization and inputs without fitting or training")
     args = parser.parse_args()
-    run(args.config, args.inputdir, args.outputdir, args.steps, args.studies, args.manifest, args.check_only)
+    run(args.config, args.inputdir, args.outputdir, args.steps, args.studies, args.manifest, args.check_only,
+        correction_lib=args.correction_lib)
 
 
 if __name__ == "__main__":
