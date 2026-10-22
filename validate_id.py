@@ -12,7 +12,7 @@ from workflow.ValidateID import ValidateIDAnalysis
 
 
 def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=None,
-        correction_lib=None, steps=("prepare", "plot")):
+        correction_lib=None, steps=("prepare", "plot"), id_correctionlib=None):
     config_path = Path(config_path).resolve()
     cfg = yaml.safe_load(config_path.read_text())
     base_path = (config_path.parent / cfg["base_config"]).resolve()
@@ -26,6 +26,8 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
     regions = cfg.get("regions", preparation["regions"])
     sources = deepcopy(cfg["wp_sources"])
     artifacts = {"correction_lib": correction_lib}
+    if id_correctionlib:
+        artifacts["id_correctionlib"] = str(Path(id_correctionlib).resolve())
     for source, options in sources.items():
         options["path"] = options["path"].format(**paths)
         for region in regions:
@@ -40,6 +42,8 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
         previous, current = yaml.safe_load(saved.read_text()), deepcopy(resolved)
         # Presentation changes can redraw cached evaluation data in the same directory.
         for settings in (previous, current):
+            # Export recipes do not change a plot; an applied export is fingerprinted above.
+            settings["configuration"].pop("correctionlib", None)
             for key in ("configuration", "training_configuration"):
                 settings[key].pop("plot_style", None)
             for group, field in (("wp_sources", "labels"), ("datasets", "label"), ("comparisons", "label")):
@@ -96,6 +100,7 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
                                datasets=selected, regions=regions, wp_sources=sources,
                                region_definition=base["region_definition"],
                                plot_style=plot_style,
+                               id_correctionlib=artifacts.get("id_correctionlib"),
                                label=comparison.get("label", name), **cfg["validation"])
     return str(output)
 
@@ -108,10 +113,11 @@ def main():
     parser.add_argument("--prepared-dir", help="Existing held-out data; defaults to base_config storedir")
     parser.add_argument("--training-dir", help="Completed WP directory; defaults to base_config training outputdir")
     parser.add_argument("--correction-lib", help="Completed correction JSON; defaults to base_config correction_lib")
+    parser.add_argument("--id-correctionlib", help="Full ID JSON: check equivalence and plot its raw-input decisions")
     parser.add_argument("--steps", nargs="+", choices=("prepare", "plot"), default=["prepare", "plot"])
     args = parser.parse_args()
     run(args.config, args.outputdir, args.inputdir, args.prepared_dir, args.training_dir,
-        args.correction_lib, args.steps)
+        args.correction_lib, args.steps, args.id_correctionlib)
 
 
 if __name__ == "__main__":

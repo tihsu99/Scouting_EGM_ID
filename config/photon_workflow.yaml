@@ -1,0 +1,25 @@
+# Convert actual ScoutingPhoton candidates, not electron proxies.
+# Use as production.id_workflow in a separate ntuplizer campaign, or with id_ntupler.py.
+candidate_collection: ScoutingPhoton
+gen_matching_dR: 0.2
+gen_matching_relative_pt: 0.2
+# Match stable PDG 22 particles with |pT(reco)-pT(gen)|/pT(gen) <= 0.2.
+# status: 0 unmatched, 1 prompt, 3 other matched photon (including nonprompt tau decays).
+# Prompt uses GenStatusFlags.isPrompt; the slide's mother-PID statement is ambiguous.
+ntupler_store_values_for_photon:
+  - pt
+  - eta
+  - phi
+  - m
+  - sigmaIetaIeta
+  - hOverE
+  - ecalIso
+  - hcalIso
+  - trkIso
+  - r9
+  - status
+ntupler_store_event_scalars: [run, luminosityBlock, event]
+ntupler_store_values_for_event:
+  Generator: [weight, binvar]
+  Pileup: [nPU]
+  ScoutingRho: [fixedGridRhoFastjetAll]

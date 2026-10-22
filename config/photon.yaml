@@ -1,0 +1,175 @@
+# Scouting adaptation of CutBasedPhotonID_20221017.pdf, slides 31-32.
+# Run through photon_pipeline.yaml with postprocess.py and explicit input/output paths.
+# The offline IsoC variable is unavailable: this ID uses ECAL/HCAL isolation only.
+# Absolute isolation in GeV; no division by E or pT. All coefficients are rederived.
+inputdir: null
+process: {}
+n_files: -1
+n_workers: 1
+random_seed: 42
+train_ratio: 0.8
+# Keep calibration and training on the same physical-event partition.
+split_columns: [sample, run, luminosityBlock, event]
+normalization: {}
+max_rows_per_sample: 2000000
+batch_size: 100000
+region_definition:
+  Barrel:
+    requirement: abs(eta) < 1.4442
+  Endcap:
+    requirement: (abs(eta) > 1.5666) & (abs(eta) < 2.5)
+
+plot_style:
+  formats: [pdf, png]
+  max_series_per_panel: 24
+  rc_params:
+    figure.figsize: [12, 9]
+    font.size: 20
+    legend.fontsize: 11
+    savefig.dpi: 150
+  legend:
+    loc: upper center
+    bbox_to_anchor: [0.5, -0.15]
+    ncol: 3
+    frameon: false
+  cms_label:
+    label: Preliminary
+    data: false
+    com: 13.6
+    fontsize: 20
+
+workflow:
+  DeriveEffectiveArea:
+    calibration_train_only: true
+    input_columns: &raw_columns [pt, eta, status, hOverE, sigmaIetaIeta, ecalIso, hcalIso, ScoutingRho.fixedGridRhoFastjetAll, run, luminosityBlock, event]
+    EffectiveArea:
+      HOE_EA:
+        x: '`ScoutingRho.fixedGridRhoFastjetAll`'
+        y: hOverE
+        x_title: '$\rho$ [GeV]'
+        y_title: '$H/E$'
+        title: H/E pileup correction
+        # The transition gap is removed by signal_requirement before fitting.
+        # The 1.4442-2.0 coefficient is fitted only with |eta| > 1.5666.
+        eta_bins: &eta_bins [0, 1.0, 1.4442, 2.0, 2.2, 2.3, 2.4, 2.5]
+        y_type: contour95
+        x_bins: &rho_bins [0, 70, 14]
+        fitted_func: y = A1*x + A2
+      IE_EA:
+        x: '`ScoutingRho.fixedGridRhoFastjetAll`'
+        y: ecalIso
+        x_title: '$\rho$ [GeV]'
+        y_title: '$I_{ECAL}$ [GeV]'
+        title: ECAL pileup correction
+        eta_bins: *eta_bins
+        y_type: contour95
+        x_bins: *rho_bins
+        fitted_func: y = A1*x + A2
+      IH_EA:
+        x: '`ScoutingRho.fixedGridRhoFastjetAll`'
+        y: hcalIso
+        x_title: '$\rho$ [GeV]'
+        y_title: '$I_{HCAL}$ [GeV]'
+        title: HCAL pileup correction
+        eta_bins: *eta_bins
+        y_type: contour95
+        x_bins: *rho_bins
+        fitted_func: y = A1*x + A2
+      IE_pt:
+        x: pt
+        y: ecalIso - IE_EA*`ScoutingRho.fixedGridRhoFastjetAll`
+        x_title: '$p_T$ [GeV]'
+        y_title: '$I_{ECAL}-\rho EA_{ECAL}$ [GeV]'
+        title: ECAL pT correction
+        eta_bins: &pt_eta_bins [0, 1.4442, 2.5]
+        y_type: contour95
+        x_bins: &pt_fit_bins [15, 600, 39]
+        fitted_func: y = A1*x + A2
+      IH_pt1: &hcal_pt_fit
+        x: pt
+        y: hcalIso - IH_EA*`ScoutingRho.fixedGridRhoFastjetAll`
+        x_title: '$p_T$ [GeV]'
+        y_title: '$I_{HCAL}-\rho EA_{HCAL}$ [GeV]'
+        title: HCAL pT correction
+        eta_bins: *pt_eta_bins
+        y_type: contour95
+        x_bins: *pt_fit_bins
+        fitted_func: y = A1*x + A2*x**2 + A3
+        coefficient: A1
+      # Reuse the same fit specification to export its quadratic coefficient.
+      IH_pt2:
+        <<: *hcal_pt_fit
+        coefficient: A2
+
+  InspectDistribution:
+    progress: true
+    input_columns: *raw_columns
+    regions: [Barrel, Endcap]
+    shuffle: true
+    train_ratio: 0.8
+    kinematic_reweighting: BACKGROUND
+    reweight_binning:
+      pt: [15, 20, 30, 50, 80, 100, 150, 200, 300, 500, 800, 1200, 2000, 5000, 10000]
+      eta: [-2.5, -2.2, -2.0, -1.5666, -1.4442, -1.0, 0, 1.0, 1.4442, 1.5666, 2.0, 2.2, 2.5]
+    stitch_binning: null
+    define_variable:
+      hOverE_calibrated: hOverE - HOE_EA*`ScoutingRho.fixedGridRhoFastjetAll`
+      ecalIso_calibrated:
+        expression: ecalIso - IE_EA*`ScoutingRho.fixedGridRhoFastjetAll` - IE_pt*pt
+        lower: 0
+      hcalIso_calibrated:
+        expression: hcalIso - IH_EA*`ScoutingRho.fixedGridRhoFastjetAll` - IH_pt1*pt - IH_pt2*pt**2
+        lower: 0
+    inspect_variable:
+      pt: [15, 20, 30, 50, 80, 100, 150, 200, 300, 500, 800, 1200, 2000]
+      eta: [-2.5, 2.5, 25]
+      sigmaIetaIeta: [0, 0.05, 50]
+      hOverE_calibrated: [-0.1, 0.2, 30]
+      ecalIso_calibrated: [0, 20, 40]
+      hcalIso_calibrated: [0, 20, 40]
+
+  TrainCutBasedID_TMVA:
+    weight_col: training_weight
+    isolation_denominator: none
+    efficiency_tolerance: 0.03
+    regions: [Barrel, Endcap]
+    target_efficiencies: [0.7, 0.8, 0.9]
+    n_workers: 4
+    n_signal: 300000
+    n_background: 300000
+    tmva_cycles: 60
+    tmva_popsize: 100
+    random_seed: 12345
+    train_ratio: 0.8
+    n_trials: 2
+    variables:
+      PhotonIso:
+        sigmaIetaIeta: {min: 0, max: 999999, direction: less, binning: [0, 0.05, 50]}
+        hOverE_calibrated: {min: -999999, max: 999999, direction: less, binning: [-0.1, 0.2, 30]}
+        ecalIso_calibrated: {min: 0, max: 999999, direction: less, binning: [0, 20, 40]}
+        hcalIso_calibrated: {min: 0, max: 999999, direction: less, binning: [0, 20, 40]}
+
+  ValidateID:
+    regions: [Barrel, Endcap]
+    unit_weights: true
+    dedicated_wps: true
+    allow_empty_slices: true
+    connect_sources: [Optimized(PhotonIso)]
+    label: 'ScoutingPhoton; prompt status 1 vs background status 0,3; unit candidate weights'
+    pt_regions:
+      pt15to100: [15, 100]
+      pt100to300: [100, 300]
+      pt300to800: [300, 800]
+      pt800plus: [800, null]
+    monitor_eff:
+      pt:
+        label: '$p_T$ [GeV]'
+        xscale: log
+        binning: [15, 20, 30, 50, 80, 100, 150, 200, 300, 500, 800, 1200, 2000, 5000, 10000]
+      eta:
+        label: '$\eta$'
+        binning: [-2.5, 2.5, 25]
+      ScoutingRho.fixedGridRhoFastjetAll:
+        label: '$\rho$ [GeV]'
+        binning: [0, 80, 16]
+    variables: {}

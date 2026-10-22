@@ -3,6 +3,11 @@
 base_config: retune.yaml
 regions: [Barrel, Endcap]
 
+# Export includes this fiducial cut and the base configuration's region selection.
+correctionlib:
+  version: 1
+  requirement: "pt > 10"
+
 preparation:
   progress: true
   # Per-sample prefix cap, before cuts. null reads all candidates and needs more memory.

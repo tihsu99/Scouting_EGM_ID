@@ -30,7 +30,10 @@ def match_electron_truth(electrons, gen_particles, max_dr):
 
 
 def match_candidate_truth(candidates, gen_particles, max_dr, pdg_id=11, max_relative_pt=None):
-    """Match final-state particles; optional relative pT uses generator pT."""
+    """Match final-state particles: photons use 0/1/3; electrons also have tau category 2.
+
+    Optional relative pT uses generator pT.
+    """
     gen_ele = gen_particles[(abs(gen_particles.pdgId) == pdg_id) & (gen_particles.status == 1)]
     reco_momentum = ak.zip({
         "pt": candidates.pt, "eta": candidates.eta,
@@ -52,8 +55,10 @@ def match_candidate_truth(candidates, gen_particles, max_dr, pdg_id=11, max_rela
 
     # CMS GenStatusFlags: bit 0 isPrompt, bit 4 isDirectTauDecayProduct.
     prompt = (flags & (1 << 0)) != 0
-    from_tau = (flags & (1 << 4)) != 0
-    category = ak.where(from_tau, 2, ak.where(prompt, 1, 3))
+    category = ak.where(prompt, 1, 3)
+    if pdg_id == 11:
+        from_tau = (flags & (1 << 4)) != 0
+        category = ak.where(from_tau, 2, category)
     candidates["status"] = ak.values_astype(ak.where(matched, category, 0), np.int32)
     candidates["gen_idx"] = closest_idx
     candidates["gen_dR"] = closest_dr

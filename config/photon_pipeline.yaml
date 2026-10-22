@@ -1,0 +1,20 @@
+# Run: python3 postprocess.py config/photon_pipeline.yaml --inputdir PHOTON_PARQUET --outputdir PHOTON_OUTPUT
+# Input folders must contain actual photons produced with photon_workflow.yaml.
+# Replace GJet/QCD with your sample folder names. No DAS dataset is assumed here.
+base_config: photon.yaml
+steps: [calibrate, prepare, train, validate]
+# The offline PDF thresholds and electron defaults do not apply to this scouting ID.
+default_wp: null
+signal_requirement: (status == 1) & (pt > 15) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.5666) & (abs(eta) < 2.5)))
+background_requirement: ((status == 0) | (status == 3)) & (pt > 15) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.5666) & (abs(eta) < 2.5)))
+training_weight_mode: nonnegative
+# Unit candidate weights, no stitching. For multiple pT-binned sources, configure
+# physical normalization explicitly before interpreting a combined efficiency.
+normalization: {}
+calibration_samples: [GJet]
+studies:
+  photon_qcd:
+    signal: [GJet]
+    background: [QCD]
+shared: {}
+workflow_overrides: {}

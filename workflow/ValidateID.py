@@ -104,6 +104,21 @@ def load_tmva_wp_file(path: str) -> List[WP]:
     return wps
 
 
+def load_configured_wps(path, options=None):
+    options = options or {}
+    wps = load_tmva_wp_file(path)
+    for wp in wps:
+        expected = options.get("isolation_denominator")
+        if expected is not None and wp.meta.get("isolation_denominator") != expected:
+            raise ValueError(f"Isolation denominator mismatch in {path}/{wp.name}: expected {expected}")
+        mapping = options.get("variable_map", {})
+        wp.window_cuts = {mapping.get(var, var): cut for var, cut in wp.window_cuts.items()}
+        wp.meta["label"] = options.get("labels", {}).get(wp.name, wp.name)
+    if not wps:
+        raise ValueError(f"No working points in {path}")
+    return wps
+
+
 # -----------------------------
 # Core analysis class
 # -----------------------------
@@ -169,6 +184,8 @@ class ValidationAnalyzer:
         return mask
 
     def _pass_wp(self, df_block: pd.DataFrame, wp: WP) -> np.ndarray:
+        if "pass_column" in wp.meta:
+            return df_block[wp.meta["pass_column"]].to_numpy(dtype=bool)
         if wp.meta.get("strict", False):
             mask = np.ones(len(df_block), dtype=bool)
             for var, (lo, hi) in wp.window_cuts.items():
@@ -671,6 +688,17 @@ def ValidateIDAnalysis(**kwargs):
     outdir = kwargs.pop("outputdir", os.path.join(inputdir, "validation_plots"))
     wp_sources_cfg = kwargs.pop("wp_sources", None)
 
+    id_corrections = None
+    if kwargs.get("id_correctionlib"):
+        import correctionlib
+        from apply_id import evaluate_id
+        if variables:
+            raise ValueError("Full correctionlib IDs support ROC/efficiency validation, not N-minus-one plots")
+        id_corrections = correctionlib.CorrectionSet.from_file(str(kwargs["id_correctionlib"]))
+        if kwargs.get("input_columns") is not None:
+            raw_columns = {item.name for correction in id_corrections.values() for item in correction.inputs}
+            kwargs["input_columns"] = list(dict.fromkeys([*kwargs["input_columns"], *sorted(raw_columns)]))
+
     os.makedirs(outdir, exist_ok=True)
     console.rule("[bold blue]ValidateID Analysis")
 
@@ -735,18 +763,31 @@ def ValidateIDAnalysis(**kwargs):
         wp_sources: Dict[str, List[WP]] = {}
         for src_name, path in wp_paths.items():
             console.print(f"  [cyan]Source {src_name}[/cyan]: loading WPs from {path}")
-            wp_sources[src_name] = load_tmva_wp_file(path)
             options = (wp_sources_cfg or {}).get(src_name, {})
-            if not isinstance(options, str):
-                for wp in wp_sources[src_name]:
-                    expected = options.get("isolation_denominator")
-                    if expected is not None and wp.meta.get("isolation_denominator") != expected:
-                        raise ValueError(f"Isolation denominator mismatch in {path}/{wp.name}: expected {expected}")
-                    mapping = options.get("variable_map", {})
-                    wp.window_cuts = {mapping.get(var, var): cut for var, cut in wp.window_cuts.items()}
-                    wp.meta["label"] = options.get("labels", {}).get(wp.name, wp.name)
-            if not wp_sources[src_name]:
-                raise ValueError(f"No working points in {path}")
+            wp_sources[src_name] = load_configured_wps(path, {} if isinstance(options, str) else options)
+
+        if id_corrections is not None:
+            reference = ValidationAnalyzer(df, wp_sources, plot_style=kwargs.get("plot_style"))
+            checks = []
+            for source, wps in wp_sources.items():
+                for wp in wps:
+                    name = f"{source}/{wp.name}"
+                    passed = evaluate_id(id_corrections, name, df)
+                    expected = reference._pass_wp(df, wp)
+                    mismatch = passed != expected
+                    checks.append(dict(correction=name, rows=len(df), mismatches=int(mismatch.sum()),
+                                       correctionlib_pass=int(passed.sum()), reference_pass=int(expected.sum()),
+                                       first_mismatch_rows=np.flatnonzero(mismatch)[:10].tolist()))
+                    column = f"__correctionlib_pass_{len(checks)}"
+                    df[column] = passed
+                    wp.meta["pass_column"] = column
+            check_dir = os.path.join(outdir, region)
+            os.makedirs(check_dir, exist_ok=True)
+            with open(os.path.join(check_dir, "id_equivalence.json"), "w") as handle:
+                json.dump(dict(backend="correctionlib", checks=checks), handle, indent=2)
+            if any(item["mismatches"] for item in checks):
+                raise ValueError(f"Correctionlib ID differs from reference cuts in {region}; see id_equivalence.json")
+            del reference
 
         options = dict(processes=datasets, connect_sources=kwargs.get("connect_sources", ()),
                        dedicated_wps=kwargs.get("dedicated_wps", False), regions=[region],
