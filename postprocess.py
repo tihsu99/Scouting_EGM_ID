@@ -2,6 +2,7 @@
 """Run the configured ID studies using the existing analysis stages."""
 import argparse
 from copy import deepcopy
+from difflib import unified_diff
 import importlib
 import json
 from pathlib import Path
@@ -27,6 +28,13 @@ def preparation_recipe(resolved, study):
                      process={category: {"samples": dict.fromkeys(cfg["studies"][study][category], 1.0),
                                          "requirement": cfg[f"{category}_requirement"]}
                               for category in ("signal", "background")})
+    # Execution and plotting options do not change the stored candidates or weights.
+    for key in ("n_workers", "batch_size", "progress", "plot_style", "inspect_variable",
+                "stitch_binning", "plotdir", "storedir", "shuffle"):
+        arguments.pop(key, None)
+    if arguments.get("sampling") is not None:
+        arguments["sampling"] = dict(arguments["sampling"])
+        arguments["sampling"].pop("cache_dir", None)
     return arguments
 
 
@@ -126,9 +134,19 @@ def run(config_path, inputdir, outputdir, steps=None, studies=None, manifest=Non
         if previous.get("prepared_dir"):
             raise ValueError("--prepared-dir must point to the original prepare output directory")
         for name in selected:
-            if name not in previous["configuration"]["studies"] or preparation_recipe(previous, name) != preparation_recipe(resolved, name):
+            if name not in previous["configuration"]["studies"]:
+                raise ValueError(f"Study {name} is missing from {prepared_dir / 'resolved_config.yaml'}")
+            original_recipe = preparation_recipe(previous, name)
+            requested_recipe = preparation_recipe(resolved, name)
+            if original_recipe != requested_recipe:
+                difference = "".join(unified_diff(
+                    yaml.safe_dump(original_recipe, sort_keys=True).splitlines(keepends=True),
+                    yaml.safe_dump(requested_recipe, sort_keys=True).splitlines(keepends=True),
+                    fromfile=f"prepared: {prepared_dir / 'resolved_config.yaml'}",
+                    tofile=f"requested: {config_path}", n=2))
                 raise ValueError(f"Prepared data settings differ for {name}; restore the original preparation settings "
-                                 "or rerun prepare before reusing these tables")
+                                 "or rerun prepare with the existing correction library before reusing these tables.\n"
+                                 f"{difference}")
             required_regions = {region for step in steps for region in workflow[
                 "TrainCutBasedID_TMVA" if step == "train" else "ValidateID"]["regions"]}
             for region in required_regions:
