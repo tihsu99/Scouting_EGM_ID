@@ -691,12 +691,13 @@ def ValidateIDAnalysis(**kwargs):
     id_corrections = None
     if kwargs.get("id_correctionlib"):
         import correctionlib
-        from apply_id import evaluate_id
+        from apply_id import evaluate_id, id_evaluators, id_inputs
         if variables:
             raise ValueError("Full correctionlib IDs support ROC/efficiency validation, not N-minus-one plots")
         id_corrections = correctionlib.CorrectionSet.from_file(str(kwargs["id_correctionlib"]))
         if kwargs.get("input_columns") is not None:
-            raw_columns = {item.name for correction in id_corrections.values() for item in correction.inputs}
+            raw_columns = {item.name for correction in id_evaluators(id_corrections).values()
+                           for item in id_inputs(correction)}
             kwargs["input_columns"] = list(dict.fromkeys([*kwargs["input_columns"], *sorted(raw_columns)]))
 
     os.makedirs(outdir, exist_ok=True)

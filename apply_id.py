@@ -8,10 +8,20 @@ import correctionlib
 import numpy as np
 
 
+def id_evaluators(corrections):
+    """Select complete WPs, including bundles exported before compound IDs."""
+    return corrections.compound if corrections.compound else corrections
+
+
+def id_inputs(correction):
+    """correctionlib 2.1 exposes input metadata only through its native object."""
+    return correction.inputs if hasattr(correction, "inputs") else correction._base.inputs
+
+
 def evaluate_id(corrections, name, inputs):
     """Evaluate a WP on a mapping or DataFrame of raw columns; no calibration step."""
-    correction = corrections[name]
-    arguments = [np.asarray(inputs[item.name], dtype=np.float64) for item in correction.inputs]
+    correction = id_evaluators(corrections)[name]
+    arguments = [np.asarray(inputs[item.name], dtype=np.float64) for item in id_inputs(correction)]
     result = np.asarray(correction.evaluate(*arguments))
     if not np.isin(result, [0., 1.]).all():
         raise ValueError(f"{name} did not return a binary ID decision")
@@ -36,8 +46,9 @@ def main():
     if output.exists():
         raise FileExistsError(f"Refusing to overwrite {output}")
     corrections = correctionlib.CorrectionSet.from_file(args.correctionset)
-    names = args.wps or list(corrections)
-    raw_columns = sorted({item.name for name in names for item in corrections[name].inputs})
+    evaluators = id_evaluators(corrections)
+    names = args.wps or list(evaluators)
+    raw_columns = sorted({item.name for name in names for item in id_inputs(evaluators[name])})
     source = pq.ParquetFile(args.input)
     for name in names:
         if f"pass_{name}" in source.schema_arrow.names:

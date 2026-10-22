@@ -33,17 +33,24 @@ class Expressions:
                     raise ValueError("ID expressions must have finite constants")
                 return repr(int(node.value) if isinstance(node.value, bool) else node.value)
             if isinstance(node, ast.BinOp):
+                if isinstance(node.op, (ast.BitAnd, ast.BitOr)):
+                    left, right = visit(node.left), visit(node.right)
+                    if isinstance(node.op, ast.BitAnd):
+                        return f"(({left}!=0)*({right}!=0))"
+                    return f"((({left}!=0)+({right}!=0))>0)"
                 operator = {ast.Add: "+", ast.Sub: "-", ast.Mult: "*", ast.Div: "/",
-                            ast.Pow: "^", ast.BitAnd: "&&", ast.BitOr: "||"}.get(type(node.op))
+                            ast.Pow: "^"}.get(type(node.op))
                 if operator:
                     return f"({visit(node.left)}{operator}{visit(node.right)})"
             if isinstance(node, ast.UnaryOp):
-                operator = {ast.USub: "-", ast.UAdd: "+", ast.Not: "!", ast.Invert: "!"}.get(type(node.op))
-                if operator:
-                    return f"({operator}{visit(node.operand)})"
+                if isinstance(node.op, (ast.Not, ast.Invert)):
+                    return f"({visit(node.operand)}==0)"
+                if isinstance(node.op, (ast.USub, ast.UAdd)):
+                    return f"(-{visit(node.operand)})" if isinstance(node.op, ast.USub) else visit(node.operand)
             if isinstance(node, ast.BoolOp):
-                operator = "&&" if isinstance(node.op, ast.And) else "||"
-                return "(" + operator.join(visit(value) for value in node.values) + ")"
+                terms = [f"({visit(value)}!=0)" for value in node.values]
+                return ("(" + "*".join(terms) + ")" if isinstance(node.op, ast.And)
+                        else "((" + "+".join(terms) + ")>0)")
             if isinstance(node, ast.Compare):
                 terms = []
                 for left, op, right in zip([node.left, *node.comparators], node.ops, node.comparators):
@@ -53,7 +60,7 @@ class Expressions:
                         break
                     terms.append(f"({visit(left)}{operator}{visit(right)})")
                 else:
-                    return "(" + "&&".join(terms) + ")"
+                    return "(" + "*".join(terms) + ")"
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and not node.keywords:
                 arity = {"abs": 1, "cosh": 1, "sinh": 1, "sqrt": 1, "exp": 1,
                          "log": 1, "log10": 1, "min": 2, "max": 2, "pow": 2}
@@ -75,12 +82,15 @@ class Expressions:
                         expression = f"{function}({value!r},{expression})"
             self.symbols[name] = expression
 
-    def formula(self, expression):
+    def formula(self, expression, check_finite=True):
         used = [name for index, name in enumerate(self.inputs) if f"__raw_{index}__" in expression]
+        if len(used) > 4:
+            raise ValueError(f"A legacy-compatible ID component supports at most four raw inputs: {used}")
         for index, name in enumerate(used):
-            expression = expression.replace(f"__raw_{self.inputs.index(name)}__", f"x[{index}]")
-        finite = "&&".join(f"(abs(x[{index}])<={sys.float_info.max!r})" for index in range(len(used)))
-        expression = f"({finite})&&({expression})" if finite else expression
+            expression = expression.replace(f"__raw_{self.inputs.index(name)}__", "xyzt"[index])
+        # Older TFormula parsers support comparisons and arithmetic, but no logical operators.
+        finite = "*".join(f"(abs({symbol})<={sys.float_info.max!r})" for symbol in "xyzt"[:len(used)])
+        expression = f"({finite})*(({expression})!=0)" if finite and check_finite else expression
         # TFormula accepts scientific notation without an explicit positive exponent sign.
         expression = re.sub(r"(?<=\d)e\+", "e", expression)
         return used, dict(nodetype="formula", parser="TFormula", variables=used,
@@ -111,7 +121,7 @@ def coefficient_expression(correction, eta):
             cuts.append(f"(abs({eta})>={edges[index]!r})")
         if index < len(values) - 1:
             cuts.append(f"(abs({eta})<{edges[index + 1]!r})")
-        condition = "&&".join(cuts) or "1"
+        condition = "*".join(cuts) or "1"
         terms.append(f"(({condition})*({float(value)!r}))")
     return "(" + "+".join(terms) + ")"
 
@@ -129,29 +139,60 @@ def build_correction_set(base, validation, calibration, wps_by_region):
                   for sources in wps_by_region.values()]
     if not signatures or any(keys != signatures[0] for keys in signatures):
         raise ValueError("Every region must provide the same source/WP names")
+    regions = {region: compiler.compile(base["region_definition"][region]["requirement"])
+               for region in wps_by_region}
     branches = {}
     metadata = {}
     for region, sources in wps_by_region.items():
-        acceptance = compiler.compile(base["region_definition"][region]["requirement"])
         for source, wps in sources.items():
             for wp in wps:
                 key = f"{source}/{wp.name}"
-                cuts = [requirement, acceptance]
+                cuts = {}
                 for variable, (low, high) in wp.window_cuts.items():
                     if not math.isfinite(low) or not math.isfinite(high) or low > high:
                         raise ValueError(f"Invalid cut for {region}/{key}/{variable}")
                     expression = compiler.compile(f"`{variable}`")
                     lower, upper = (">", "<") if wp.meta.get("strict", False) else (">=", "<=")
-                    cuts.extend((f"({expression}{lower}{low!r})", f"({expression}{upper}{high!r})"))
-                branches.setdefault(key, []).append("(" + "&&".join(cuts) + ")")
+                    cuts[variable] = f"(({expression}{lower}{low!r})*({expression}{upper}{high!r}))"
+                branches.setdefault(key, {})[region] = cuts
                 metadata[key] = dict(source=source, wp=wp.name, label=wp.meta.get("label", wp.name))
     corrections = []
-    for name, terms in branches.items():
-        inputs, formula = compiler.formula("(" + "||".join(terms) + ")")
+
+    def add_component(name, expression, region_guard=False):
+        inputs, data = compiler.formula(expression, check_finite=not region_guard)
+        if region_guard:
+            # Reject overlapping regions rather than combining cuts from different regions.
+            if not inputs:
+                raise ValueError("ID region definitions must depend on raw inputs")
+            data = dict(nodetype="transform", input=inputs[0], rule=data,
+                        content=dict(nodetype="binning", input=inputs[0], edges=[-.5, 1.5],
+                                     content=[1.], flow="error"))
         corrections.append(dict(name=name, version=settings.get("version", 1),
-                                description="Cut-based ID: 1=pass, 0=fail; nonfinite inputs fail. "
-                                            + "Regions: " + ", ".join(wps_by_region),
+                                description="Internal ID component; evaluate the compound WP for the full ID.",
                                 inputs=[dict(name=name, type="real") for name in inputs],
-                                output=dict(name="pass", type="real"), data=formula))
+                                output=dict(name="pass", type="real"), data=data))
+        return inputs
+
+    common = ["__id__/exclusive_regions", "__id__/fiducial"]
+    common_inputs = set(add_component(common[0], "+".join(f"({value})" for value in regions.values()),
+                                      region_guard=True))
+    common_inputs.update(add_component(common[1], requirement))
+    compounds = []
+    for name, regional_cuts in branches.items():
+        inputs, stack = set(common_inputs), list(common)
+        variables = list(dict.fromkeys(variable for cuts in regional_cuts.values() for variable in cuts))
+        # Each cut sees the original raw inputs; multiplying binary results applies all cuts.
+        for index, variable in enumerate(variables or [None]):
+            expression = "+".join(f"({regions[region]}*({cuts.get(variable, '1')}))"
+                                  for region, cuts in regional_cuts.items())
+            component = f"__id__/{name}/cut_{index}"
+            inputs.update(add_component(component, f"({expression})"))
+            stack.append(component)
+        compounds.append(dict(name=name,
+                              description="Full ID: 1=pass, 0=fail; nonfinite inputs fail. "
+                                          "Regions must not overlap: " + ", ".join(regions),
+                              inputs=[dict(name=item, type="real") for item in compiler.inputs if item in inputs],
+                              output=dict(name="pass", type="real"), inputs_update=[],
+                              input_op="*", output_op="*", stack=stack))
     return dict(schema_version=2, description="Full scouting ID from raw inputs; includes fiducial selection.",
-                corrections=corrections), metadata
+                corrections=corrections, compound_corrections=compounds), metadata

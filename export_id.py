@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export full scouting ID corrections and a standalone application script."""
+"""Export full scouting IDs in CorrectionSet.compound and a standalone application script."""
 import argparse
 import gzip
 import hashlib
@@ -47,7 +47,7 @@ def export_id(config_path, outputdir, training_dir=None, correction_lib=None):
         raise FileExistsError(f"ID export already exists in {output}; use a new output directory")
     packed = gzip.compress(payload.encode(), mtime=0)
     manifest = dict(correctionset=destinations[0].name, sha256=hashlib.sha256(packed).hexdigest(),
-                    corrections=metadata, requirement=config["correctionlib"]["requirement"],
+                    evaluator="compound", corrections=metadata, requirement=config["correctionlib"]["requirement"],
                     regions={region: base["region_definition"][region] for region in wps_by_region},
                     artifacts={name: dict(path=str(path), sha256=hashlib.sha256(path.read_bytes()).hexdigest())
                                for name, path in artifacts.items()})
