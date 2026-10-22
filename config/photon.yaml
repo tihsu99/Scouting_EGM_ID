@@ -53,7 +53,7 @@ workflow:
         # The 1.4442-2.0 coefficient is fitted only with |eta| > 1.5666.
         eta_bins: &eta_bins [0, 1.0, 1.4442, 2.0, 2.2, 2.3, 2.4, 2.5]
         y_type: contour95
-        x_bins: &rho_bins [0, 70, 14]
+        x_bins: &rho_bins [10, 50, 20]
         fitted_func: y = A1*x + A2
       IE_EA:
         x: '`ScoutingRho.fixedGridRhoFastjetAll`'
