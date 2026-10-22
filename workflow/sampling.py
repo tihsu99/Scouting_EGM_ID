@@ -53,8 +53,8 @@ def load_random_sample(paths, columns, limit, seed, sample, cache_dir, batch_siz
     # range sampling avoids allocating a permutation of the full production.
     sample_seed = hashlib.sha256(f"{seed}:{sample}".encode()).hexdigest()
     indices = np.array(sorted(random.Random(sample_seed).sample(range(total), size)), dtype=np.int64)
-    parts, offset = [], 0
-    with tqdm(total=size, desc=f"Sample {sample}", unit="row", unit_scale=True,
+    parts, offset, source_rows = [], 0, 0
+    with tqdm(total=size, desc=f"Sample {sample}", unit="kept", unit_scale=True,
               dynamic_ncols=True, disable=not progress) as bar:
         for path, count in zip(paths, file_rows):
             if indices.searchsorted(offset) == indices.searchsorted(offset + count):
@@ -62,21 +62,26 @@ def load_random_sample(paths, columns, limit, seed, sample, cache_dir, batch_siz
                 continue
             with path.open("rb") as source:
                 parquet = pq.ParquetFile(source)
-                for group in range(parquet.num_row_groups):
-                    group_rows = parquet.metadata.row_group(group).num_rows
-                    if indices.searchsorted(offset) == indices.searchsorted(offset + group_rows):
-                        offset += group_rows
-                        continue
-                    for batch in parquet.iter_batches(row_groups=[group], columns=columns,
+                bounds = offset + np.concatenate(([0], np.cumsum([
+                    parquet.metadata.row_group(group).num_rows for group in range(parquet.num_row_groups)
+                ], dtype=np.int64)))
+                groups = np.flatnonzero(np.diff(indices.searchsorted(bounds)) > 0)
+                # Stream adjacent groups together so small row groups do not limit batch size.
+                for run in np.split(groups, np.flatnonzero(np.diff(groups) > 1) + 1):
+                    position = bounds[run[0]]
+                    for batch in parquet.iter_batches(row_groups=run.tolist(), columns=columns,
                                                       batch_size=batch_size, use_threads=False):
-                        stop = offset + batch.num_rows
-                        positions = indices[indices.searchsorted(offset):indices.searchsorted(stop)]
+                        stop = position + batch.num_rows
+                        positions = indices[indices.searchsorted(position):indices.searchsorted(stop)]
+                        source_rows += batch.num_rows
+                        bar.set_postfix(source_rows=f"{source_rows:,}", refresh=False)
                         if len(positions):
-                            selected = batch.take(positions - offset).to_pandas(use_threads=False)
+                            selected = batch.take(positions - position).to_pandas(use_threads=False)
                             selected["sample_row"] = positions.astype(np.uint64)
                             parts.append(selected)
                             bar.update(len(selected))
-                        offset = stop
+                        position = stop
+            offset += count
     frame = pd.concat(parts, ignore_index=True)
     if len(frame) != size:
         raise ValueError(f"Input changed while sampling {sample}: expected {size} rows, got {len(frame)}")

@@ -150,7 +150,7 @@ def DeriveEffectiveAreaAnalysis(**kwargs):
 
     limit = kwargs.get("max_rows_per_sample")
     if limit is not None and limit != -1:
-        print(f"Reading at most {limit:,} input candidates per sample before cuts and splitting")
+        print(f"Keeping at most {limit:,} input candidates per sample before cuts and splitting")
     frames, report = load_samples(
         inputdir, process, n_files, kwargs.get("normalization"),
         columns=kwargs.get("input_columns"), max_rows_per_sample=limit,
