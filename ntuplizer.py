@@ -60,7 +60,8 @@ def required_branches(workflow):
     collection, fields = candidate_fields(workflow)
     branches = {"run", "luminosityBlock", "event", "n" + collection, "nGenPart"}
     branches.update(workflow.get("ntupler_store_event_scalars", []))
-    branches.update(collection + "_" + name for name in fields if name not in ("status", "gen_idx", "gen_dR"))
+    branches.update(collection + "_" + name for name in fields
+                    if name not in ("status", "gen_idx", "gen_dR", "gen_pt", "gen_energy"))
     branches.update(collection + "_" + name for name in ("pt", "eta", "phi", "m"))
     branches.update("GenPart_" + name for name in
                     ("pt", "eta", "phi", "mass", "pdgId", "status", "statusFlags", "genPartIdxMother"))
@@ -76,7 +77,9 @@ def candidate_fields(workflow):
     return collection, workflow["ntupler_store_values_for_" + collection.removeprefix("Scouting").lower()]
 
 
-def discover_files(sample, base):
+def discover_files(sample, base, max_files=None):
+    if max_files is not None:
+        positive(max_files, "max_files")
     dataset = sample["das"]
     if not re.fullmatch(r"/[^/\s]+/[^/\s]+/[^/\s]+", dataset) or "REPLACE_" in dataset:
         raise ValueError(f"Expected a full DAS dataset name: {dataset}")
@@ -87,14 +90,15 @@ def discover_files(sample, base):
         if not re.fullmatch(r"prod/[a-z]+", instance):
             raise ValueError(f"Invalid DAS instance: {instance}")
         result = subprocess.run(
-            ["dasgoclient", "--query", f"file dataset={dataset} instance={instance}", "--limit", "0"],
+            ["dasgoclient", "--query", f"file dataset={dataset} instance={instance}",
+             "--limit", str(max_files if max_files is not None else 0)],
             check=True, text=True, capture_output=True,
         )
         raw = result.stdout.splitlines()
     files = sorted({line.strip() for line in raw if line.strip() and not line.lstrip().startswith("#")})
     if not files or any(not re.fullmatch(r"/store/[^\s]+\.root", name) for name in files):
         raise ValueError(f"DAS/file_list must contain nonempty /store/...root LFNs for {dataset}")
-    return files
+    return files[:max_files] if max_files is not None else files
 
 
 def prepare(config_path, farm, selected=None, max_files=None, max_events=None):
@@ -148,7 +152,7 @@ def prepare(config_path, farm, selected=None, max_files=None, max_events=None):
                 for field in fields
             ],
             "id_config": {key: value for key, value in workflow.items() if key not in ("samples", "proxy_file")},
-            "converter_sha256": hashlib.sha256((HERE / "id_ntupler.py").read_bytes()).hexdigest(),
+            "converter_sha256": hashlib.sha256((HERE / "id_ntupler.py").read_bytes() + (HERE / "truth_matching.py").read_bytes()).hexdigest(),
             "setup_sha256": hashlib.sha256(conversion_setup.read_bytes()).hexdigest(),
         }
     pset = local_path(cmssw["pset"], base)
@@ -206,10 +210,11 @@ def prepare(config_path, farm, selected=None, max_files=None, max_events=None):
     if conversion:
         shutil.copy2(conversion_setup, farm / "conversion_env.sh")
         shutil.copy2(HERE / "id_ntupler.py", farm / "id_ntupler.py")
+        shutil.copy2(HERE / "truth_matching.py", farm / "truth_matching.py")
         shutil.copy2(HERE / "ntuplizer/convert_id.py", farm / "convert_id.py")
         id_config = dict(conversion["id_config"], samples={})
         (farm / "id_config.yaml").write_text(yaml.safe_dump(id_config, sort_keys=False))
-        transfer_files.extend(["conversion_env.sh", "id_ntupler.py", "convert_id.py", "id_config.yaml"])
+        transfer_files.extend(["conversion_env.sh", "id_ntupler.py", "truth_matching.py", "convert_id.py", "id_config.yaml"])
     env = {"CMSSW_RELEASE": release, "SCRAM_ARCH": arch, "CMSSW_AREA": str(cmssw_area),
            "CMSSET_DEFAULT": cmssw["cmsset_default"]}
     (farm / "runtime.env").write_text("".join(f"export {key}={shlex.quote(str(value))}\n" for key, value in env.items()))

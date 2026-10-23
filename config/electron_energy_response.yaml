@@ -1,0 +1,67 @@
+# DY signal diagnostic before adding any relative-pT truth requirement.
+sample_label: DY signal
+input_format: miniaod  # miniaod, nano, or parquet; use --dataset for DAS discovery.
+max_files: 1
+das_instance: prod/global
+miniAOD_production_config: ntuplizer.yaml  # Reuse the CMSSW area, scouting recipe, and input redirector.
+scratch_dir: /tmp
+tree: Events
+batch_size: 20000
+max_events: 10000  # Total MiniAOD/Nano event cap; -1 reads everything.
+max_rows: 100000  # Only for direct Parquet input; candidate rows, not events.
+weight_branch: Generator_weight  # null selects unit candidate weights.
+parquet_weight_column: Generator.weight
+gen_matching_dR: 0.1
+signal_status: [1, 2]
+reco_requirement: pt > 10
+
+# Gen-pT bins retain low-response electrons that migrate below a reco-pT boundary.
+pt_variable: gen_pt  # Alternatively: pt, to bin in reco pT.
+pt_bins: [10, 50, 100, 300, 800, null]
+region_definition:
+  Barrel:
+    requirement: abs(eta) < 1.4442
+    label: 'Barrel, $|\eta^{reco}| < 1.4442$'
+  Endcap:
+    requirement: (abs(eta) > 1.5666) & (abs(eta) < 2.5)
+    label: 'Endcap, $1.5666 < |\eta^{reco}| < 2.5$'
+
+hoe_groups:
+  all:
+    requirement: hOverE >= 0
+    label: All nonnegative H/E
+  low:
+    requirement: (hOverE >= 0) & (hOverE <= 0.05)
+    label: '$0 \leq H/E \leq 0.05$'
+    color: '#0072B2'
+  high:
+    requirement: hOverE > 0.05
+    label: '$H/E > 0.05$'
+    color: '#D55E00'
+  mid:
+    requirement: (hOverE > 0.05) & (hOverE <= 0.10)
+    label: '$0.05 < H/E \leq 0.10$'
+    color: '#E69F00'
+  large:
+    requirement: (hOverE > 0.10) & (hOverE <= 0.20)
+    label: '$0.10 < H/E \leq 0.20$'
+    color: '#D55E00'
+  very_large:
+    requirement: hOverE > 0.20
+    label: '$H/E > 0.20$'
+    color: '#A12864'
+plot_groups: [all]
+
+response_binning: [0, 2.5, 100]  # min, max, number of bins; tails remain in normalization.
+hoe_binning: [0, 0.5, 50]
+color_scale: auto  # Log for nonnegative weights; signed log if any bins are negative.
+colormap: viridis
+signed_colormap: RdBu_r
+hoe_reference_lines: [0.05]
+response_reference_lines: [0.5, 1.0, 1.5]
+# Report the rejected fraction for this proposed pT cut, without applying it.
+relative_pt_threshold: 0.5
+plot_style:
+  formats: [png, pdf]
+  cms_label: {label: Simulation Preliminary, data: false, com: 13.6, fontsize: 16}
+  rc_params: {figure.figsize: [10, 8], font.size: 15, legend.fontsize: 12, savefig.dpi: 150}

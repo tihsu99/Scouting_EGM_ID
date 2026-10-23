@@ -14,7 +14,7 @@ mkdir -p "$TMPDIR" "$XDG_CACHE_HOME"
 cp "$job" "$work/job.json"
 cp nano_cfg.py worker.py "$work/"
 if [ -f convert_id.py ]; then
-    cp convert_id.py id_ntupler.py id_config.yaml conversion_env.sh "$work/"
+    cp convert_id.py id_ntupler.py truth_matching.py id_config.yaml conversion_env.sh "$work/"
 fi
 source "$CMSSET_DEFAULT"
 if [ ! -d "$CMSSW_AREA/src" ]; then
