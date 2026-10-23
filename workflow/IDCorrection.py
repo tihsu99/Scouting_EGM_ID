@@ -82,8 +82,11 @@ class Expressions:
                         expression = f"{function}({value!r},{expression})"
             self.symbols[name] = expression
 
+    def used_inputs(self, expression):
+        return [name for index, name in enumerate(self.inputs) if f"__raw_{index}__" in expression]
+
     def formula(self, expression, check_finite=True):
-        used = [name for index, name in enumerate(self.inputs) if f"__raw_{index}__" in expression]
+        used = self.used_inputs(expression)
         if len(used) > 4:
             raise ValueError(f"A legacy-compatible ID component supports at most four raw inputs: {used}")
         for index, name in enumerate(used):
@@ -95,6 +98,32 @@ class Expressions:
         expression = re.sub(r"(?<=\d)e\+", "e", expression)
         return used, dict(nodetype="formula", parser="TFormula", variables=used,
                           expression=expression)
+
+    def factored_formula(self, expression):
+        """Evaluate configured intermediate features with legacy four-variable formulas."""
+        transforms = []
+        candidates = sorted(set(self.symbols.values()), key=lambda item: (-len(item), item))
+        while len(self.used_inputs(expression)) > 4:
+            for feature in candidates:
+                inputs = self.used_inputs(feature)
+                if not 2 <= len(inputs) <= 4 or feature not in expression:
+                    continue
+                # Only overwrite an input whose remaining uses are inside this feature.
+                remainder = expression.replace(feature, "")
+                anchors = [name for name in inputs if f"__raw_{self.inputs.index(name)}__" not in remainder]
+                if not anchors:
+                    continue
+                anchor = anchors[0]
+                _, rule = self.formula(feature, check_finite=False)
+                transforms.append((anchor, rule))
+                expression = expression.replace(feature, f"__raw_{self.inputs.index(anchor)}__")
+                break
+            else:
+                raise ValueError("Cannot factor ID formula; define intermediate features with at most four raw inputs")
+        _, data = self.formula(expression)
+        for anchor, rule in reversed(transforms):
+            data = dict(nodetype="transform", input=anchor, rule=rule, content=data)
+        return data
 
 
 def coefficient_expression(correction, eta):
@@ -166,7 +195,17 @@ def build_correction_set(base, validation, calibration, wps_by_region):
     corrections = []
 
     def add_component(name, expression, region_guard=False):
-        inputs, data = compiler.formula(expression, check_finite=not region_guard)
+        inputs, components = compiler.used_inputs(expression), []
+        if len(inputs) > 4 and not region_guard:
+            data = compiler.factored_formula(expression)
+            # A clipped intermediate can conceal a nonfinite raw input; reject it separately.
+            for offset in range(0, len(inputs), 4):
+                finite = "*".join(f"(abs(__raw_{compiler.inputs.index(item)}__)<={sys.float_info.max!r})"
+                                  for item in inputs[offset:offset + 4])
+                _, names = add_component(f"{name}/finite_{offset // 4}", finite)
+                components.extend(names)
+        else:
+            inputs, data = compiler.formula(expression, check_finite=not region_guard)
         if region_guard:
             # Reject overlapping regions rather than combining cuts from different regions.
             if not inputs:
@@ -178,12 +217,13 @@ def build_correction_set(base, validation, calibration, wps_by_region):
                                 description="Internal ID component; evaluate the compound WP for the full ID.",
                                 inputs=[dict(name=name, type="real") for name in inputs],
                                 output=dict(name="pass", type="real"), data=data))
-        return inputs
+        return inputs, components + [name]
 
-    common = ["__id__/exclusive_regions", "__id__/fiducial"]
-    common_inputs = set(add_component(common[0], "+".join(f"({value})" for value in regions.values()),
-                                      region_guard=True))
-    common_inputs.update(add_component(common[1], requirement))
+    region_inputs, common = add_component("__id__/exclusive_regions", "+".join(f"({value})" for value in regions.values()),
+                                          region_guard=True)
+    fiducial_inputs, components = add_component("__id__/fiducial", requirement)
+    common.extend(components)
+    common_inputs = set(region_inputs) | set(fiducial_inputs)
     compounds = []
     for name, regional_cuts in branches.items():
         inputs, stack = set(common_inputs), list(common)
@@ -193,8 +233,9 @@ def build_correction_set(base, validation, calibration, wps_by_region):
             expression = "+".join(f"({regions[region]}*({cuts.get(variable, '1')}))"
                                   for region, cuts in regional_cuts.items())
             component = f"__id__/{name}/cut_{index}"
-            inputs.update(add_component(component, f"({expression})"))
-            stack.append(component)
+            cut_inputs, components = add_component(component, f"({expression})")
+            inputs.update(cut_inputs)
+            stack.extend(components)
         compounds.append(dict(name=name,
                               description="Full ID: 1=pass, 0=fail; nonfinite inputs fail. "
                                           "Regions must not overlap: " + ", ".join(regions),

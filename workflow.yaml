@@ -111,3 +111,5 @@ ntupler_store_values_for_electron:
   # Matched final-state electron kinematics; NaN for unmatched candidates.
   - gen_pt
   - gen_energy
+  # Nearest final-state electron DeltaR (also retained outside the matching cone).
+  - gen_dR

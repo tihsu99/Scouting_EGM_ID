@@ -1,0 +1,468 @@
+# Standalone electron rederivation; run with postprocess.py.
+# Keep generator-origin status unchanged; failed prompt/tau response enters background.
+# Background combines TT unmatched/nonprompt with failed-response prompt/tau from DY and TT.
+# ECAL/HCAL/track slopes are measured separately, in absolute GeV; ET is represented by reco pt.
+# Optimize max(0, ECAL residual) + max(0, HCAL residual), not max(0, their sum).
+# Negative pT slopes are clipped to zero in application and the exported coefficient table.
+# Event-level split and the same prefix cache are shared by calibration and preparation.
+# Unit base weights with prefix N/K rescaling; no cross-section normalization or rate prediction.
+# Old calibration/prepared tables are incompatible: use a new output directory and rederive.
+steps: [calibrate, prepare, train, validate]
+default_wp: null
+signal_requirement: ((status == 1) | (status == 2)) & (pt > 10) & (gen_pt > 0) & (abs(pt-gen_pt) < 0.5*gen_pt)
+background_requirement: (pt > 10) & (((sample == 'TT') & ((status == 0) | (status == 3))) | (((status == 1) | (status == 2)) & ~((gen_pt > 0) & (abs(pt-gen_pt) < 0.5*gen_pt))))
+training_weight_mode: absolute
+normalization: {}
+calibration_samples: [DYToLL_M50]
+studies:
+  dy_tt:
+    signal: [DYToLL_M50]
+    background: [TT, DYToLL_M50]
+shared:
+  n_files: -1
+  n_workers: 1
+  random_seed: 42
+  train_ratio: 0.8
+  split_columns: [sample, run, luminosityBlock, event]
+  max_rows_per_sample: 2000000
+  batch_size: 1000000
+  progress: true
+  input_columns: [pt, eta, phi, status, gen_pt, gen_energy, hOverE, missingHits, dEtaIn, dPhiIn, ooEMOop, ecalIso, hcalIso,
+    trackIso, sigmaIetaIeta, ScoutingRho.fixedGridRhoFastjetAll, run, luminosityBlock, event, Generator.weight]
+  region_definition:
+    Barrel:
+      requirement: (abs(eta) < 1.4442)
+    Endcap:
+      requirement: (abs(eta) > 1.566) & (abs(eta) < 2.5)
+  sampling:
+    method: prefix
+    cache_dir: outputs/cache/electron_calibration
+  plot_style:
+    formats: [pdf, png]
+    wp_label_format: '{label}'
+    wp_palette: ['#0072B2', '#56B4E9', '#3B4CC0', '#009E73', '#CC79A7', '#D55E00']
+    cut_distributions:
+      samples:
+        DY:
+          label: DY
+          color: '#3B4CC0'
+        TT:
+          label: $t\bar{t}$
+          color: '#007F8B'
+        ElectronBackground:
+          label: TT background + DY failed-response
+          color: '#007F8B'
+    max_series_per_panel: 8
+    rc_params:
+      figure.figsize: [10, 8]
+      font.size: 22
+      legend.fontsize: 12
+      legend.title_fontsize: 14
+      savefig.dpi: 150
+    legend:
+      loc: lower right
+      frameon: false
+      borderaxespad: 1.5
+    cms_label:
+      label: Preliminary
+      data: false
+      com: 13.6
+      loc: 0
+      fontsize: 20
+workflow:
+  DeriveEffectiveArea:
+    calibration_train_only: true
+    EffectiveArea:
+      c_rho:
+        x_title: $\rho$
+        y_title: $E_{HCAL}$
+        title: $c_{\rho}$
+        x: '`ScoutingRho.fixedGridRhoFastjetAll`'
+        y: pt*cosh(eta)*hOverE
+        eta_bins: [0, 1.0, 1.5, 1.8, 2.0, 2.2, 2.3, 2.4, 2.5]
+        y_type: contour90
+        x_bins: [10, 50, 20]
+        fitted_func: y = A1*x + A2
+      c_E:
+        x_title: $E_{SC}$ [GeV]
+        y_title: $H/E-C_{\rho}\rho/E$
+        title: $c_E$
+        x: (pt*cosh(eta))
+        y: hOverE-(c_rho*`ScoutingRho.fixedGridRhoFastjetAll`/(pt*cosh(eta)))
+        eta_bins: [0, 1.0, 1.5, 1.8, 2.0, 2.2, 2.3, 2.4, 2.5]
+        y_type: contour90
+        x_bins: [10, 500, 50]
+        x_bins_by_eta:
+        - [30, 500, 50]
+        - [50, 500, 50]
+        - [100, 500, 50]
+        - [100, 500, 50]
+        - [150, 500, 50]
+        - [150, 500, 50]
+        - [150, 500, 50]
+        - [150, 500, 50]
+        fitted_func: y = A1/x + A2
+      IE_EA:
+        x: '`ScoutingRho.fixedGridRhoFastjetAll`'
+        y: ecalIso
+        x_title: $\rho$ [GeV]
+        y_title: ECAL isolation [GeV]
+        title: ECAL pileup correction
+        eta_bins: [0, 1.0, 1.4442, 2.0, 2.2, 2.3, 2.4, 2.5]
+        y_type: contour95
+        x_bins: [10, 50, 20]
+        fitted_func: y = A1*x + A2
+        coefficient: A1
+      IE_pt:
+        x: pt
+        y: ecalIso - IE_EA*`ScoutingRho.fixedGridRhoFastjetAll`
+        x_title: $p_T$ [GeV]
+        y_title: ECAL isolation after pileup subtraction [GeV]
+        title: ECAL pT correction
+        eta_bins: [0, 1.4442, 2.5]
+        y_type: contour95
+        x_bins: [10, 600, 40]
+        fitted_func: y = A1*x + A2
+        coefficient: A1
+      IH_EA:
+        x: '`ScoutingRho.fixedGridRhoFastjetAll`'
+        y: hcalIso
+        x_title: $\rho$ [GeV]
+        y_title: HCAL isolation [GeV]
+        title: HCAL pileup correction
+        eta_bins: [0, 1.0, 1.4442, 2.0, 2.2, 2.3, 2.4, 2.5]
+        y_type: contour95
+        x_bins: [10, 50, 20]
+        fitted_func: y = A1*x + A2
+        coefficient: A1
+      IH_pt:
+        x: pt
+        y: hcalIso - IH_EA*`ScoutingRho.fixedGridRhoFastjetAll`
+        x_title: $p_T$ [GeV]
+        y_title: HCAL isolation after pileup subtraction [GeV]
+        title: HCAL pT correction
+        eta_bins: [0, 1.4442, 2.5]
+        y_type: contour95
+        x_bins: [10, 600, 40]
+        fitted_func: y = A1*x + A2
+        coefficient: A1
+      IT_EA:
+        x: '`ScoutingRho.fixedGridRhoFastjetAll`'
+        y: trackIso
+        x_title: $\rho$ [GeV]
+        y_title: track isolation [GeV]
+        title: track pileup correction
+        eta_bins: [0, 1.0, 1.4442, 2.0, 2.2, 2.3, 2.4, 2.5]
+        y_type: contour95
+        x_bins: [10, 50, 20]
+        fitted_func: y = A1*x + A2
+        coefficient: A1
+      IT_pt:
+        x: pt
+        y: trackIso - IT_EA*`ScoutingRho.fixedGridRhoFastjetAll`
+        x_title: $p_T$ [GeV]
+        y_title: track isolation after pileup subtraction [GeV]
+        title: track pT correction
+        eta_bins: [0, 1.4442, 2.5]
+        y_type: contour95
+        x_bins: [10, 600, 40]
+        fitted_func: y = A1*x + A2
+        coefficient: A1
+  InspectDistribution:
+    regions: [Barrel, Endcap]
+    kinematic_reweighting: BACKGROUND
+    reweight_binning:
+      pt: [10, 15, 20, 30, 40, 60, 80, 120, 200, 300, 500, 700, 1000, 2000, 5000, 10000]
+      eta: [-2.5, -2.0, -1.566, -1.4442, -1.0, -0.5, 0.0, 0.5, 1.0, 1.4442, 1.566, 2.0, 2.5]
+    stitch_binning: null
+    define_variable:
+      IE_pt:
+        expression: IE_pt
+        lower: 0
+      IH_pt:
+        expression: IH_pt
+        lower: 0
+      IT_pt:
+        expression: IT_pt
+        lower: 0
+      Esc: pt*cosh(eta)
+      hOverE_calibrated: hOverE-(c_rho*`ScoutingRho.fixedGridRhoFastjetAll`+c_E)/Esc
+      ecalIso_calibrated:
+        expression: ecalIso - IE_EA*`ScoutingRho.fixedGridRhoFastjetAll` - IE_pt*pt
+        lower: 0
+      hcalIso_calibrated:
+        expression: hcalIso - IH_EA*`ScoutingRho.fixedGridRhoFastjetAll` - IH_pt*pt
+        lower: 0
+      trackIso_calibrated:
+        expression: trackIso - IT_EA*`ScoutingRho.fixedGridRhoFastjetAll` - IT_pt*pt
+        lower: 0
+      caloIso_calibrated: ecalIso_calibrated + hcalIso_calibrated
+      abs_dEtaIn: abs(dEtaIn)
+      abs_dPhiIn: abs(dPhiIn)
+      abs_ooEMOop: abs(ooEMOop)
+    inspect_variable:
+      pt: [10, 15, 20, 30, 50, 80, 100, 150, 200, 300, 500, 800, 1200, 2000]
+      gen_pt: [10, 15, 20, 30, 50, 80, 100, 150, 200, 300, 500, 800, 1200, 2000]
+      eta: [-2.5, 2.5, 25]
+      hOverE_calibrated: [-0.1, 0.2, 60]
+      ecalIso_calibrated: [0, 20, 80]
+      hcalIso_calibrated: [0, 20, 80]
+      caloIso_calibrated: [0, 40, 80]
+      trackIso_calibrated: [0, 10, 80]
+      sigmaIetaIeta: [0, 0.05, 50]
+      missingHits: [-0.5, 4.5, 5]
+      abs_dEtaIn: [0, 0.03, 60]
+      abs_dPhiIn: [0, 0.15, 60]
+      abs_ooEMOop: [0, 0.1, 50]
+  TrainCutBasedID_TMVA:
+    plot_samples:
+      signal: DY
+      background: ElectronBackground
+    cut_plot_variables:
+      missingHits:
+        label: Missing inner hits
+        binning: [-0.5, 5.5, 6]
+    fixed_cuts:
+      Iso: &id001
+        WP95:
+          missingHits:
+            max: 2
+        WP90:
+          missingHits:
+            max: 1
+        WP80:
+          missingHits:
+            max: 1
+        WP70:
+          missingHits:
+            max: 1
+      noIso: *id001
+    weight_col: training_weight
+    isolation_denominator: none
+    efficiency_tolerance: 0.03
+    regions: [Barrel, Endcap]
+    target_efficiencies: [0.7, 0.8, 0.9, 0.95]
+    n_workers: 4
+    n_signal: 300000
+    n_background: 300000
+    tmva_cycles: 60
+    tmva_popsize: 100
+    random_seed: 12345
+    train_ratio: 0.8
+    n_trials: 2
+    variables:
+      Iso:
+        hOverE_calibrated:
+          min: 0
+          direction: less
+          binning: [0, 0.2, 20]
+        sigmaIetaIeta:
+          min: 0
+          direction: less
+          binning: [0, 0.05, 20]
+        abs_dEtaIn:
+          min: 0
+          direction: less
+          binning: [0, 0.2, 20]
+        abs_dPhiIn:
+          min: 0
+          direction: less
+          binning: [0, 0.2, 20]
+        abs_ooEMOop:
+          min: 0
+          direction: less
+          binning: [0, 0.2, 20]
+        caloIso_calibrated:
+          min: 0
+          direction: less
+          binning: [0, 40, 80]
+        trackIso_calibrated:
+          min: 0
+          direction: less
+          binning: [0, 10, 80]
+      noIso:
+        hOverE_calibrated:
+          min: 0
+          direction: less
+          binning: [0, 0.2, 20]
+        sigmaIetaIeta:
+          min: 0
+          direction: less
+          binning: [0, 0.05, 20]
+        abs_dEtaIn:
+          min: 0
+          direction: less
+          binning: [0, 0.2, 20]
+        abs_dPhiIn:
+          min: 0
+          direction: less
+          binning: [0, 0.2, 20]
+        abs_ooEMOop:
+          min: 0
+          direction: less
+          binning: [0, 0.2, 20]
+    bound_quantiles: [0.001, 0.99]
+  ValidateID:
+    dedicated_wps: true
+    allow_empty_slices: true
+    pt_regions:
+      pt10to100: [10, 100]
+      pt100to300: [100, 300]
+      pt300to800: [300, 800]
+      pt800plus: [800, null]
+    monitor_eff:
+      pt:
+        label: $p_T$ [GeV]
+        xscale: log
+        binning: [10, 15, 20, 30, 50, 80, 100, 150, 200, 300, 500, 800, 1200, 2000, 3000, 5000, 10000]
+      eta:
+        label: $\eta$
+        binning: [-2.5, 2.5, 25]
+      ScoutingRho.fixedGridRhoFastjetAll:
+        label: $\rho$ [GeV]
+        binning: [0, 80, 16]
+    variables: {}
+    regions: [Barrel, Endcap]
+    unit_weights: true
+    connect_sources: [Optimized(Iso), Optimized(noIso)]
+    label: DY well-reconstructed prompt/direct-tau vs TT background + DY failed-response electrons
+evaluation:
+  correctionlib:
+    version: 1
+    requirement: pt > 10
+  wp_sources:
+    Iso:
+      path: '{training_dir}/{region}/CutBased_WPs_Iso_TMVA_seq.json'
+      isolation_denominator: none
+    Default:
+      path: '{config_dir}/../ref_wp/default_{region}.json'
+      variable_map:
+        relecalIso: relecalIso_E
+        relhcalIso: relhcalIso_E
+        reltrackIso: reltrackIso_E
+      labels:
+        ScoutingElectronRecommendv1: Recommend
+        ScoutingElectronCustomizev1: AXOL1TL
+  datasets:
+    DY:
+      label: DY prompt/direct-tau; relative pT difference < 0.5
+      path: '{prepared_dir}/{region}/valid/signal.parquet'
+      requirement: ((status == 1) | (status == 2)) & (pt > 10) & (gen_pt > 0) & (abs(pt-gen_pt) < 0.5*gen_pt)
+    TT:
+      label: TT unmatched/nonprompt + failed-response prompt/tau
+      path: '{prepared_dir}/{region}/valid/background.parquet'
+      requirement: sample == 'TT'
+    DYResponseFail:
+      label: DY prompt/tau failing relative pT matching
+      path: '{prepared_dir}/{region}/valid/background.parquet'
+      requirement: sample == 'DYToLL_M50'
+  comparisons:
+    DY:
+      signal: DY
+      backgrounds: [TT, DYResponseFail]
+      label: 'DY signal: status 1,2 and relative pT difference < 0.5; backgrounds include failed-response prompt/tau'
+  validation:
+    connect_sources: [Iso]
+    input_columns: [sample, weight, pt, eta, phi, status, gen_pt, gen_energy, hOverE, missingHits, dEtaIn, dPhiIn, ooEMOop,
+      ecalIso, hcalIso, trackIso, sigmaIetaIeta, ScoutingRho.fixedGridRhoFastjetAll, run, luminosityBlock, event, Generator.weight,
+      IE_pt, IH_pt, IT_pt, Esc, hOverE_calibrated, ecalIso_calibrated, hcalIso_calibrated, trackIso_calibrated, caloIso_calibrated,
+      abs_dEtaIn, abs_dPhiIn, abs_ooEMOop]
+    define_variable:
+      relecalIso_E: ecalIso/(pt*cosh(eta))
+      relhcalIso_E: hcalIso/(pt*cosh(eta))
+      reltrackIso_E: trackIso/(pt*cosh(eta))
+    cut_distributions:
+      caloIso_calibrated:
+        label: Corrected ECAL + HCAL isolation [GeV]
+        binning: [0, 40, 80]
+      trackIso_calibrated:
+        label: Corrected track isolation [GeV]
+        binning: [0, 10, 80]
+      hOverE_calibrated:
+        label: Corrected $H/E$
+        binning: [0, 0.2, 50]
+      sigmaIetaIeta:
+        label: $\sigma_{i\eta i\eta}$
+        binning: [0, 0.05, 50]
+        by_region:
+          Endcap:
+            binning: [0, 0.08, 80]
+      abs_dEtaIn:
+        label: $|\Delta\eta_{\mathrm{in}}|$
+        binning: [0, 0.03, 60]
+      abs_dPhiIn:
+        label: $|\Delta\phi_{\mathrm{in}}|$
+        binning: [0, 0.15, 60]
+      abs_ooEMOop:
+        label: $|1/E - 1/p|$ [GeV$^{-1}$]
+        binning: [0, 0.1, 50]
+      missingHits:
+        label: Missing inner hits
+        binning: [-0.5, 5.5, 6]
+      hOverE:
+        label: Raw $H/E$
+        binning: [0, 0.3, 60]
+      relecalIso_E:
+        label: Raw ECAL isolation / $E$
+        binning: [0, 1, 80]
+      relhcalIso_E:
+        label: Raw HCAL isolation / $E$
+        binning: [0, 1, 80]
+      reltrackIso_E:
+        label: Raw track isolation / $E$
+        binning: [0, 0.2, 80]
+  plot_style:
+    preset: id_comparison
+    cut_distributions:
+      samples:
+        DY:
+          label: DY
+          color: '#3B4CC0'
+        TT:
+          label: $t\bar{t}$
+          color: '#007F8B'
+        DYResponseFail:
+          label: DY failed-response prompt/tau
+          color: '#A6611A'
+        QCD:
+          label: QCD
+          color: '#8073AC'
+        Zprime:
+          label: Zprime
+          color: '#3B4CC0'
+      legend:
+        loc: upper right
+        ncol: 1
+        fontsize: 10
+        borderaxespad: 0.8
+    composition:
+      enabled: true
+      column: status
+      categories:
+        1:
+          label: prompt
+          color: '#56B4E9'
+        2:
+          label: from $\tau$
+          color: '#E69F00'
+        3:
+          label: nonprompt
+          color: '#CC79A7'
+        0:
+          label: unmatched
+          color: '#999999'
+    source_markers:
+      Iso: o
+      Default: s
+    roc_outputdir: '{outputdir}/ROC'
+    roc_filename_prefix: '{comparison}_'
+    process_palettes:
+      TT: ['#0072B2', '#56B4E9', '#3B4CC0', '#009E73', '#111111', '#606060']
+      DYResponseFail: ['#A6611A', '#D95F02', '#E69F00', '#CC503E', '#8C2D04', '#F6A04D']
+      DY: ['#0072B2', '#56B4E9', '#3B4CC0', '#009E73', '#111111', '#707070']
+    cms_label:
+      com: 13.6
+high_pt:
+  signal: [ZprimeTo2E_M6000]
+  range: [100, 10000]
+  binning: [100, 150, 200, 300, 500, 800, 1200, 2000, 5000, 10000]

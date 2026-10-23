@@ -43,7 +43,7 @@ wp_response:
 
 # Gen-pT bins retain low-response electrons that migrate below a reco-pT boundary.
 pt_variable: gen_pt  # Alternatively: pt, to bin in reco pT.
-pt_bins: [10, 50, 100, 300, 800, null]
+pt_bins: [10, 20, 30, 50, 100, 300, 800, null]
 region_definition:
   Barrel:
     requirement: abs(eta) < 1.4442
@@ -76,7 +76,7 @@ hoe_groups:
     requirement: hOverE > 0.20
     label: '$H/E > 0.20$'
     color: '#A12864'
-plot_groups: [all]
+plot_groups: [all, high]
 
 response_binning: [0, 2.5, 100]  # min, max, number of bins; tails remain in normalization.
 hoe_binning: [0, 0.5, 50]
@@ -84,6 +84,12 @@ color_scale: auto  # Log for nonnegative weights; signed log if any bins are neg
 colormap: viridis
 signed_colormap: RdBu_r
 hoe_reference_lines: [0.05]
+additional_response_axes:
+  gen_dR:
+    label: '$\Delta R(\mathrm{reco},\mathrm{gen})$'
+    binning: [0, 0.105, 70]
+    reference_lines: [0.1]
+    note: 'Stored prompt/tau matches already pass the production DeltaR cut; no new matching cut is applied.'
 response_reference_lines: [0.5, 1.0, 1.5]
 # Report the rejected fraction for this proposed pT cut, without applying it.
 relative_pt_threshold: 0.5

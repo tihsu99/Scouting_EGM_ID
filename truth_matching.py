@@ -43,7 +43,7 @@ def match_candidate_truth(candidates, gen_particles, max_dr, pdg_id=11, max_rela
         category = ak.where(from_tau, 2, category)
     candidates["status"] = ak.values_astype(ak.where(matched, category, 0), np.int32)
     candidates["gen_idx"] = closest_idx
-    candidates["gen_dR"] = closest_dr
+    candidates["gen_dR"] = ak.fill_none(closest_dr, np.nan)
     candidates["gen_pt"] = ak.fill_none(ak.mask(gen_ele[closest_idx].pt, matched), np.nan)
     candidates["gen_energy"] = ak.fill_none(ak.mask(gen_momentum[closest_idx].energy, matched), np.nan)
     return candidates

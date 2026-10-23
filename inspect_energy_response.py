@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Quick DY MiniAOD-to-Parquet diagnostic: H/E versus electron energy response."""
+"""Quick DY diagnostic: H/E and matching DeltaR versus electron energy response."""
 import argparse
 import glob
 import json
@@ -75,7 +75,7 @@ def candidate_frame(arrays, config):
     def flat(values):
         return ak.to_numpy(ak.flatten(ak.fill_none(values, np.nan)))
 
-    columns = {name: flat(matched[name]) for name in (*RECO_FIELDS, "status", "gen_pt", "gen_energy")}
+    columns = {name: flat(matched[name]) for name in (*RECO_FIELDS, "status", "gen_pt", "gen_energy", "gen_dR")}
     for name, branch in config.get("cache_columns", {}).items():
         columns[name] = flat(ak.broadcast_arrays(reco.pt, arrays[branch])[1])
     if config.get("weight_branch"):
@@ -126,7 +126,8 @@ def source_frames(config, files, report, extra_columns=()):
                 source = pq.ParquetFile(filename)
                 missing = set(columns) - set(source.schema_arrow.names)
                 if missing:
-                    raise ValueError(f"{filename} missing Parquet columns {sorted(missing)}; regenerate with gen_pt/gen_energy stored")
+                    raise ValueError(f"{filename} missing Parquet columns {sorted(missing)}; regenerate with gen_pt/gen_energy/gen_dR stored, "
+                                     "or use --input-format nano --files /path/to/retained/scouting_nano.root")
                 available = source.metadata.num_rows
                 stop = available if cap == -1 else min(available, cap - report[counter])
                 record = dict(path=filename, rows=0, available_rows=available)
@@ -260,6 +261,11 @@ def validate_config(config):
     if set(config["plot_groups"]) - config["hoe_groups"].keys():
         raise ValueError("Unknown H/E group in plot_groups")
     hoe_bins(config)
+    for name, spec in response_axes(config).items():
+        axis_low, axis_high, axis_count = spec["binning"]
+        if (not np.isfinite([axis_low, axis_high]).all() or axis_high <= axis_low
+                or type(axis_count) is not int or axis_count < 1):
+            raise ValueError(f"{name} binning requires [min, max, positive integer bins]")
     if config.get("color_scale") not in ("auto", "linear"):
         raise ValueError("color_scale must be auto or linear")
     return pt_edges, np.linspace(low, high, count + 1)
@@ -270,6 +276,18 @@ def hoe_bins(config):
     if not np.isfinite([low, high]).all() or high <= low or type(count) is not int or count < 1:
         raise ValueError("hoe_binning requires [min, max, positive integer bins]")
     return np.linspace(low, high, count + 1)
+
+
+def response_axes(config):
+    axes = {"hOverE": dict(binning=config["hoe_binning"], label=r"$H/E$",
+                          reference_lines=config.get("hoe_reference_lines", []))}
+    axes.update(config.get("additional_response_axes", {}))
+    return axes
+
+
+def histogram_keys(variable):
+    suffix = "" if variable == "hOverE" else "_" + variable
+    return "sumw_2d" + suffix, "counts_2d" + suffix
 
 
 def collect(config, files):
@@ -283,16 +301,19 @@ def collect(config, files):
                     below_half_sumw=0., above_one_half_sumw=0., pt_fail_sumw=0.,
                     underflow_sumw=0., overflow_sumw=0.,
                     counts=np.zeros(len(bins) - 1, dtype=np.int64), sumw_bins=np.zeros(len(bins) - 1)))
-    xbins = hoe_bins(config)
+    axes = response_axes(config)
+    xbins = {name: np.linspace(*spec["binning"][:2], spec["binning"][2] + 1) for name, spec in axes.items()}
     for hist in histograms:
         if hist["group"] in config["plot_groups"]:
-            hist["sumw_2d"] = np.zeros((len(xbins) - 1, len(bins) - 1))
-            hist["counts_2d"] = np.zeros((len(xbins) - 1, len(bins) - 1), dtype=np.int64)
+            for name, edges in xbins.items():
+                weighted, counts = histogram_keys(name)
+                hist[weighted] = np.zeros((len(edges) - 1, len(bins) - 1))
+                hist[counts] = np.zeros((len(edges) - 1, len(bins) - 1), dtype=np.int64)
     report = dict(selected_signal=0, invalid_signal=0,
                   energy_definition="sqrt((pt*cosh(eta))**2 + mass**2), for reco and gen",
                   matching="stored truth labels" if config["input_format"] == "parquet" else
                            "nearest final-state gen electron within DeltaR; no relative-pT cut")
-    for raw in source_frames(config, files, report):
+    for raw in source_frames(config, files, report, extra_columns=list(axes)):
         frame, invalid = signal_frame(raw, config)
         report["invalid_signal"] += invalid
         report["selected_signal"] += len(frame)
@@ -317,20 +338,24 @@ def collect(config, files):
                     hist["counts"] += np.histogram(values, bins=bins)[0]
                     hist["sumw_bins"] += np.histogram(values, bins=bins, weights=weights)[0]
                     if hist["group"] in config["plot_groups"]:
-                        hist["sumw_2d"] += np.histogram2d(subset.hOverE, values, bins=[xbins, bins], weights=weights)[0]
-                        hist["counts_2d"] += np.histogram2d(subset.hOverE, values, bins=[xbins, bins])[0].astype(np.int64)
+                        for name, edges in xbins.items():
+                            weighted, counts = histogram_keys(name)
+                            hist[weighted] += np.histogram2d(subset[name], values, bins=[edges, bins], weights=weights)[0]
+                            hist[counts] += np.histogram2d(subset[name], values, bins=[edges, bins])[0].astype(np.int64)
     return bins, histograms, report
 
 def plot(config, bins, histograms, output):
     configure_style(config.get("plot_style"))
-    xbins = hoe_bins(config)
-    panels = [h for h in histograms if h["group"] in config["plot_groups"]]
-    for hist in tqdm(panels, desc="2D plots", unit="plot", dynamic_ncols=True):
+    panels = [(hist, name, spec) for hist in histograms if hist["group"] in config["plot_groups"]
+              for name, spec in response_axes(config).items()]
+    for hist, name, spec in tqdm(panels, desc="2D plots", unit="plot", dynamic_ncols=True):
+        xbins = np.linspace(*spec["binning"][:2], spec["binning"][2] + 1)
+        weighted, counts = histogram_keys(name)
         region, index = hist["region"], hist["pt_bin"]
         low, high = config["pt_bins"][index:index + 2]
         symbol = r"p_T^{gen}" if config["pt_variable"] == "gen_pt" else r"p_T^{reco}"
         pt_label = rf"${symbol} \geq {low:g}$ GeV" if high is None else rf"${low:g} \leq {symbol} < {high:g}$ GeV"
-        values = hist["sumw_2d"].T
+        values = hist[weighted].T
         limit = max(float(np.max(np.abs(values))), 1e-12)
         if np.any(values < 0):
             norm = SymLogNorm(linthresh=limit * 1e-3, vmin=-limit, vmax=limit) if config["color_scale"] == "auto" else Normalize(-limit, limit)
@@ -343,13 +368,14 @@ def plot(config, bins, histograms, output):
         mesh = ax.pcolormesh(xbins, bins, plotted, norm=norm, cmap=cmap, shading="auto")
         colorbar = fig.colorbar(mesh, ax=ax, label="Sum of generator weights" if config.get("weight_branch") else "Candidates")
         colorbar.ax.set_label("_secondary_axis")
-        for reference in config.get("hoe_reference_lines", []):
+        for reference in spec.get("reference_lines", []):
             ax.axvline(reference, color="#D55E00", linewidth=1.4)
         for reference in config.get("response_reference_lines", []):
             ax.axhline(reference, color="0.5", linewidth=.8)
-        ax.set(xlabel=r"$H/E$", ylabel=r"$E^{reco}/E^{gen}$", xlim=(xbins[0], xbins[-1]), ylim=(bins[0], bins[-1]))
-        shown = int(hist["counts_2d"].sum())
+        ax.set(xlabel=spec["label"], ylabel=r"$E^{reco}/E^{gen}$", xlim=(xbins[0], xbins[-1]), ylim=(bins[0], bins[-1]))
+        shown = int(hist[counts].sum())
         text = (config["region_definition"][region]["label"] + "\n" + pt_label + "\n" +
+                config["hoe_groups"][hist["group"]]["label"] + "\n" +
                 config["sample_label"] + f"; N={hist['entries']:,}; shown={shown:,}")
         ax.text(.03, .97, text, transform=ax.transAxes, va="top", fontsize=11,
                 bbox=dict(facecolor="white", alpha=.85, edgecolor="none"))
@@ -357,8 +383,11 @@ def plot(config, bins, histograms, output):
             ax.text(.5, .5, "No DY signal candidates", transform=ax.transAxes, ha="center", fontsize=13)
         note = (f"Signal status {config['signal_status']}; {config.get('reco_requirement', 'all reco')}; no additional relative-pT cut\n"
                 "Out-of-range candidates are counted in summary.csv; colors show weighted entries per 2D bin.")
+        if spec.get("note"):
+            note += "\n" + spec["note"]
         fig.text(.12, -.01, note, fontsize=8, va="top")
-        save_plot(fig, output / region / f"response2d_pt{index}_{hist['group']}.png", config.get("plot_style"))
+        prefix = "response2d" if name == "hOverE" else "response2d_" + name
+        save_plot(fig, output / region / f"{prefix}_pt{index}_{hist['group']}.png", config.get("plot_style"))
 
 
 def run(config, files, output):
@@ -383,9 +412,12 @@ def run(config, files, output):
     for hist in histograms:
         row = {key: value for key, value in hist.items() if not isinstance(value, np.ndarray)}
         index, total = hist["pt_bin"], hist["sumw"]
-        if "counts_2d" in hist:
-            row["shown_2d_entries"] = int(hist["counts_2d"].sum())
-            row["outside_2d_sumw"] = hist["sumw"] - float(hist["sumw_2d"].sum())
+        for name in response_axes(config):
+            weighted, counts = histogram_keys(name)
+            suffix = "" if name == "hOverE" else "_" + name
+            if counts in hist:
+                row["shown_2d_entries" + suffix] = int(hist[counts].sum())
+                row["outside_2d_sumw" + suffix] = hist["sumw"] - float(hist[weighted].sum())
         row.update(pt_variable=config["pt_variable"], pt_min=config["pt_bins"][index], pt_max=config["pt_bins"][index + 1])
         for name, source in (("mean_response", "response_sumw"), ("fraction_response_below_half", "below_half_sumw"),
                              ("fraction_response_above_one_half", "above_one_half_sumw"),
@@ -393,7 +425,7 @@ def run(config, files, output):
             row[name] = hist[source] / total if total else None
         rows.append(row)
     pd.DataFrame(rows).to_csv(output / "summary.csv", index=False)
-    payload = dict(bins=bins.tolist(), hoe_bins=hoe_bins(config).tolist(), histograms=[{key: value.tolist() if isinstance(value, np.ndarray) else value
+    payload = dict(bins=bins.tolist(), hoe_bins=hoe_bins(config).tolist(), response_axes=response_axes(config), histograms=[{key: value.tolist() if isinstance(value, np.ndarray) else value
                    for key, value in hist.items()} for hist in histograms], report=report)
     (output / "histograms.json").write_text(json.dumps(payload, indent=2, allow_nan=False) + "\n")
     (output / "resolved_config.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
