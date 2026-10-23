@@ -230,7 +230,7 @@ evaluation:
       path: '{config_dir}/../ref_wp/default_photon_{region}.json'
       isolation_denominator: E = max(1, pt*cosh(eta))
       variable_map: {relecalIso: relecalIso_E, relhcalIso: relhcalIso_E}
-      labels: {ScoutingPhotonCustomizev1: Customized reference}
+      labels: {ScoutingPhotonCustomizev1: AXOL1TL}
   datasets:
     GJetSignal:
       label: GJet prompt photons (status 1)
