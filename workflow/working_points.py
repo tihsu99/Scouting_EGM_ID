@@ -128,7 +128,56 @@ def cut_bounds(wp, variable):
     return bounds
 
 
-def print_id_table(wps_by_region, output=None, requirement=None, region_definitions=None, precision=6):
+def calibration_table_lines(definitions, calibration, precision):
+    """Show configured formulas and retain each coefficient's original eta binning."""
+    lines = []
+    if definitions:
+        lines.extend(["## Feature definitions", "",
+                      "Apply these definitions in the listed order before the WP cuts. "
+                      "The expressions retain the configured pT dependence and clipping.", "",
+                      "| Variable | Expression |", "|---|---|"])
+        for name, definition in definitions.items():
+            expression = definition if isinstance(definition, str) else definition["expression"]
+            if isinstance(definition, dict):
+                for bound, function in (("lower", "max"), ("upper", "min")):
+                    if definition.get(bound) is not None:
+                        expression = f"{function}({definition[bound]:.{precision}g}, {expression})"
+            expression = expression.replace("|", r"\|")
+            lines.append(f"| `{name}` | ``{expression}`` |")
+        lines.append("")
+    if calibration is None:
+        if definitions:
+            lines.extend(["Coefficient values are omitted; supply --correction-lib to print them.", ""])
+        return lines
+
+    from workflow.IDCorrection import coefficient_expression
+
+    groups = {}
+    for correction in calibration["corrections"]:
+        # Share the exporter's validation of scalar and clamped absolute-eta coefficients.
+        coefficient_expression(correction, "eta")
+        data = correction["data"]
+        edges = tuple(data["edges"]) if isinstance(data, dict) else ()
+        values = data["content"] if isinstance(data, dict) else [data]
+        groups.setdefault(edges, {})[correction["name"]] = values
+    lines.extend(["## Calibration coefficients", "",
+                  "Coefficients are evaluated at abs(eta). Tables group only identical eta bins; "
+                  "no coefficients are rebinned or interpolated. Binned coefficients use flow=clamp "
+                  "outside the tabulated edges. The ID region selections above still apply.", ""])
+    for index, (edges, coefficients) in enumerate(groups.items(), 1):
+        lines.extend([f"### Coefficient table {index}", "",
+                      "| `abs(eta)` interval | " + " | ".join(f"`{name}`" for name in coefficients) + " |",
+                      "|---|" + "---|" * len(coefficients)])
+        for row in range(len(edges) - 1 if edges else 1):
+            interval = f"[{edges[row]:.{precision}g}, {edges[row + 1]:.{precision}g})" if edges else "All"
+            values = " | ".join(f"{values[row]:.{precision}g}" for values in coefficients.values())
+            lines.append(f"| {interval} | {values} |")
+        lines.append("")
+    return lines
+
+
+def print_id_table(wps_by_region, output=None, requirement=None, region_definitions=None, precision=6,
+                   definitions=None, calibration=None):
     """Print a Markdown cut table, optionally save it, and return its contents."""
     lines = ["# Cut-based ID", ""]
     if requirement:
@@ -150,10 +199,11 @@ def print_id_table(wps_by_region, output=None, requirement=None, region_definiti
                     entries.append(" and ".join(terms) or "No cut")
                 lines.append(f"| `{variable}` | " + " | ".join(entries) + " |")
             lines.append("")
+    lines.extend(calibration_table_lines(definitions, calibration, precision))
     lines.extend(["All cuts in a column are applied together, after the configured feature calibration.",
                   "Fixed cuts use inclusive bounds. WP names denote nominal optimization targets; "
                   "efficiencies after fixed cuts must be measured.",
-                  f"Numbers are displayed to {precision} significant digits; JSON retains the exact thresholds.", ""])
+                  f"Numbers are displayed to {precision} significant digits; JSON retains the exact thresholds and coefficients.", ""])
     markdown = "\n".join(lines)
     if output is not None:
         path = Path(output)
