@@ -751,6 +751,17 @@ def ValidateIDAnalysis(**kwargs):
             options = (wp_sources_cfg or {}).get(src_name, {})
             wp_sources[src_name] = load_configured_wps(path, {} if isinstance(options, str) else options)
 
+        if id_corrections is not None:
+            expected_names = {f"{source}/{wp.name}" for source, wps in wp_sources.items() for wp in wps}
+            missing = sorted(expected_names - set(id_evaluators(id_corrections)))
+            if missing:
+                raise ValueError(
+                    f"ID correctionlib {kwargs['id_correctionlib']} is missing configured WPs for {region}: "
+                    f"{', '.join(missing)}. Re-export with export_id.py using the current YAML, completed WPs "
+                    "and calibration into a new directory; use the resulting scouting_id.json.gz with "
+                    "--id-correctionlib and a new validation --outputdir."
+                )
+
         columns = kwargs.get("input_columns")
         if columns is not None:
             extra = {var for wps in wp_sources.values() for wp in wps for var in wp.meta.get("fixed_cuts", {})}
