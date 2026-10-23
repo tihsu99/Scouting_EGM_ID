@@ -15,6 +15,32 @@ gen_matching_dR: 0.1
 signal_status: [1, 2]
 reco_requirement: pt > 10
 
+# Raw inputs for full electron correctionlib WPs; event scalars are broadcast per candidate.
+cache_columns:
+  sigmaIetaIeta: ScoutingElectron_sigmaIetaIeta
+  dEtaIn: ScoutingElectron_dEtaIn
+  dPhiIn: ScoutingElectron_dPhiIn
+  ooEMOop: ScoutingElectron_ooEMOop
+  missingHits: ScoutingElectron_missingHits
+  ecalIso: ScoutingElectron_ecalIso
+  hcalIso: ScoutingElectron_hcalIso
+  trackIso: ScoutingElectron_trackIso
+  ScoutingRho.fixedGridRhoFastjetAll: ScoutingRho_fixedGridRhoFastjetAll
+
+wp_response:
+  binning: [0, 2.5, 100]
+  yscales: [linear, log]
+  groups: [all, high]
+  inclusive: true
+  reference_lines: [0.5, 1.0, 1.5]
+  # Strictest to loosest; nesting is checked on every selected candidate.
+  wps:
+    - {name: Iso/WP70, label: WP70, color: '#B2182B'}
+    - {name: Iso/WP80, label: WP80, color: '#EF6548'}
+    - {name: Iso/WP90, label: WP90, color: '#FDB863'}
+    - {name: Iso/WP95, label: WP95, color: '#FEE08B'}
+  fail_color: '#C7C7C7'
+
 # Gen-pT bins retain low-response electrons that migrate below a reco-pT boundary.
 pt_variable: gen_pt  # Alternatively: pt, to bin in reco pT.
 pt_bins: [10, 50, 100, 300, 800, null]

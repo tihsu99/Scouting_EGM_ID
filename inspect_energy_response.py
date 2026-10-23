@@ -76,6 +76,8 @@ def candidate_frame(arrays, config):
         return ak.to_numpy(ak.flatten(ak.fill_none(values, np.nan)))
 
     columns = {name: flat(matched[name]) for name in (*RECO_FIELDS, "status", "gen_pt", "gen_energy")}
+    for name, branch in config.get("cache_columns", {}).items():
+        columns[name] = flat(ak.broadcast_arrays(reco.pt, arrays[branch])[1])
     if config.get("weight_branch"):
         weights = ak.broadcast_arrays(reco.pt, arrays[config["weight_branch"]])[1]
         columns[config["parquet_weight_column"]] = flat(weights)
@@ -101,7 +103,7 @@ def response_frame(arrays, config):
     return signal_frame(candidate_frame(arrays, config), config)
 
 
-def source_frames(config, files, report):
+def source_frames(config, files, report, extra_columns=()):
     parquet = config["input_format"] == "parquet"
     cap = config["max_rows"] if parquet else config["max_events"]
     counter = "rows_read" if parquet else "events_read"
@@ -109,9 +111,11 @@ def source_frames(config, files, report):
     columns = ["pt", "eta", "m", "hOverE", "status", "gen_pt", "gen_energy"]
     if config.get("weight_branch"):
         columns.append(config["parquet_weight_column"])
+    columns = list(dict.fromkeys(columns + list(extra_columns)))
     branches = ["ScoutingElectron_" + key for key in RECO_FIELDS] + ["GenPart_" + key for key in GEN_FIELDS]
     if config.get("weight_branch"):
         branches.append(config["weight_branch"])
+    branches = list(dict.fromkeys(branches + list(config.get("cache_columns", {}).values())))
     with tqdm(total=None if cap == -1 else cap, desc="DY Parquet" if parquet else "Nano -> Parquet",
               unit="row" if parquet else "event", unit_scale=True, dynamic_ncols=True) as progress:
         for number, filename in enumerate(files, 1):
