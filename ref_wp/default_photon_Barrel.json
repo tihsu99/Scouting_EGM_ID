@@ -1,0 +1,15 @@
+{
+  "ScoutingPhotonCustomizev1": {
+    "strict": true,
+    "isolation_denominator": "E = max(1, pt*cosh(eta))",
+    "source": "EgammaAnalysis/TnPTreeProducer/plugins/ScoutingPhotonRefSelector.cc",
+    "source_sha256": "40f75114e277a9afb925fc35333648c3fdeb8dabf682a153da6999531ad35e99",
+    "source_region": "abs(eta) < 1.479; evaluated within the configured Barrel fiducial region",
+    "cuts": {
+      "sigmaIetaIeta": 0.015,
+      "hOverE": 0.2,
+      "relecalIso": 0.25,
+      "relhcalIso": 0.6
+    }
+  }
+}
