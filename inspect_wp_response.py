@@ -58,7 +58,8 @@ def complete_wp_inputs(path, required, config):
     if not isinstance(receipt.get("events_read"), int) or receipt["events_read"] <= 0:
         raise ValueError("Diagnostic cache receipt must record a positive event count")
     cached_config = dict(config, max_events=receipt["events_read"],
-                         gen_matching_dR=receipt["gen_matching_dR"])
+                         gen_matching_dR=receipt["gen_matching_dR"],
+                         electron_response_max_relative_pt=receipt.get("electron_response_max_relative_pt"))
     print(f"Completing WP inputs from {nano}; original Parquet is retained", flush=True)
     with tempfile.NamedTemporaryFile(dir=path.parent, suffix=".parquet", delete=False) as handle:
         temporary = Path(handle.name)

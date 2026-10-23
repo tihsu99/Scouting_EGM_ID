@@ -88,7 +88,8 @@ def sample_normalizations(sample_paths, normalization):
 
 
 def load_samples(inputdir, process, n_files=-1, normalization=None, columns=None,
-                 max_rows_per_sample=None, batch_size=100000, progress=False, sampling=None):
+                 max_rows_per_sample=None, batch_size=100000, progress=False, sampling=None,
+                 electron_response_max_relative_pt=None):
     """Load samples with a legacy prefix cap or explicitly configured, rescaled subsets."""
     if max_rows_per_sample is not None and (
             isinstance(max_rows_per_sample, bool) or not isinstance(max_rows_per_sample, int)
@@ -163,6 +164,15 @@ def load_samples(inputdir, process, n_files=-1, normalization=None, columns=None
         frames[sample]["sample_row"] = np.arange(len(frames[sample]), dtype=np.uint64)
         reports[sample] = {"files": [str(p) for p in read_paths], "rows": len(frames[sample])}
     for sample, frame in frames.items():
+        if electron_response_max_relative_pt is not None:
+            from truth_matching import electron_pt_mismatch
+            missing = {"status", "pt", "gen_pt"} - set(frame.columns)
+            if missing:
+                raise ValueError(f"Electron response labeling requires columns: {sorted(missing)}")
+            failed = electron_pt_mismatch(frame.status, frame.pt, frame.gen_pt, electron_response_max_relative_pt)
+            frame.loc[failed, "status"] = 5
+            reports[sample].update(electron_response_max_relative_pt=electron_response_max_relative_pt,
+                                   response_mismatch_rows=int((frame.status == 5).sum()))
         if normalization:
             reports[sample].update(normalized[sample])
             frame["weight"] = frame[weight_column].to_numpy(dtype=float) * normalized[sample]["normalization_factor"]

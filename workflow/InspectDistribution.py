@@ -38,7 +38,8 @@ def InspectDistributionAnalysis(**kwargs):
                                          columns=kwargs.get("input_columns"),
                                          max_rows_per_sample=kwargs.get("max_rows_per_sample"),
                                          batch_size=kwargs.get("batch_size", 100000), progress=progress,
-                                         sampling=kwargs.get("sampling"))
+                                         sampling=kwargs.get("sampling"),
+                                         electron_response_max_relative_pt=kwargs.get("electron_response_max_relative_pt"))
     storedir, plotdir = Path(kwargs["storedir"]), Path(kwargs["plotdir"])
     storedir.mkdir(parents=True, exist_ok=True)
     (storedir / "normalization.json").write_text(json.dumps(normalization, indent=2) + "\n")

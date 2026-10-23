@@ -6,16 +6,28 @@ import vector
 vector.register_awkward()
 
 
-def match_electron_truth(electrons, gen_particles, max_dr):
-    """Label nearest final-state electrons: 0 unmatched, 1 prompt, 2 tau, 3 other."""
-    return match_candidate_truth(electrons, gen_particles, max_dr)
+def electron_pt_mismatch(status, pt, gen_pt, max_relative_pt):
+    """Identify prompt/direct-tau electrons failing the strict response requirement."""
+    if not np.isfinite(max_relative_pt) or max_relative_pt <= 0:
+        raise ValueError("electron_response_max_relative_pt must be finite and positive")
+    return ((status == 1) | (status == 2)) & np.logical_not(
+        (gen_pt > 0) & (abs(pt - gen_pt) < max_relative_pt * gen_pt))
 
 
-def match_candidate_truth(candidates, gen_particles, max_dr, pdg_id=11, max_relative_pt=None):
+def match_electron_truth(electrons, gen_particles, max_dr, electron_response_max_relative_pt=None):
+    """Label nearest electrons: 0 unmatched, 1 prompt, 2 tau, 3 other, 5 bad response."""
+    return match_candidate_truth(electrons, gen_particles, max_dr,
+                                electron_response_max_relative_pt=electron_response_max_relative_pt)
+
+
+def match_candidate_truth(candidates, gen_particles, max_dr, pdg_id=11, max_relative_pt=None,
+                          electron_response_max_relative_pt=None):
     """Match final-state particles: photons use 0/1/3; electrons also have tau category 2.
 
-    Optional relative pT uses generator pT.
+    max_relative_pt filters matching candidates; electron response labeling never rematches.
     """
+    if electron_response_max_relative_pt is not None and (pdg_id != 11 or max_relative_pt is not None):
+        raise ValueError("Electron response labeling requires electrons and distance-only matching")
     gen_ele = gen_particles[(abs(gen_particles.pdgId) == pdg_id) & (gen_particles.status == 1)]
     reco_momentum = ak.zip({
         "pt": candidates.pt, "eta": candidates.eta,
@@ -46,5 +58,9 @@ def match_candidate_truth(candidates, gen_particles, max_dr, pdg_id=11, max_rela
     candidates["gen_dR"] = ak.fill_none(closest_dr, np.nan)
     candidates["gen_pt"] = ak.fill_none(ak.mask(gen_ele[closest_idx].pt, matched), np.nan)
     candidates["gen_energy"] = ak.fill_none(ak.mask(gen_momentum[closest_idx].energy, matched), np.nan)
+    if electron_response_max_relative_pt is not None:
+        failed = electron_pt_mismatch(candidates.status, candidates.pt, candidates.gen_pt,
+                                      electron_response_max_relative_pt)
+        candidates["status"] = ak.values_astype(ak.where(failed, 5, candidates.status), np.int32)
     return candidates
 

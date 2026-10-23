@@ -38,6 +38,7 @@ class Ntupler(processor.ProcessorABC):
         self.store_event_scalars = config.get("ntupler_store_event_scalars", [])
         self.gen_matching_dR = config["gen_matching_dR"]
         self.gen_matching_relative_pt = config.get("gen_matching_relative_pt")
+        self.electron_response_max_relative_pt = config.get("electron_response_max_relative_pt")
         if self.gen_matching_dR <= 0 or (self.gen_matching_relative_pt is not None and self.gen_matching_relative_pt <= 0):
             raise ValueError("Generator matching thresholds must be positive")
 
@@ -62,7 +63,8 @@ class Ntupler(processor.ProcessorABC):
 
         candidates = match_candidate_truth(getattr(events, self.collection), events.GenPart,
                                            self.gen_matching_dR, self.pdg_id,
-                                           self.gen_matching_relative_pt)
+                                           self.gen_matching_relative_pt,
+                                           self.electron_response_max_relative_pt)
 
         for key in self.store_values_candidate:
             output[key] += processor.column_accumulator(ak.to_numpy(ak.flatten(candidates[key])))

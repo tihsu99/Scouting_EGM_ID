@@ -14,6 +14,8 @@ samples:
 
 # Nearest final-state generator electron; matches include the boundary.
 gen_matching_dR: 0.1
+# Label prompt/direct-tau matches failing abs(pt-gen_pt)/gen_pt < 0.5 as status 5.
+electron_response_max_relative_pt: 0.5
 
 proxy_file: /afs/cern.ch/user/t/tihsu/tmp/x509up
 
@@ -106,7 +108,7 @@ ntupler_store_values_for_electron:
   - showerEdep7
   - showerEdep8
   - showerEdep9
-  # 0 unmatched, 1 prompt, 2 direct tau decay, 3 other matched/nonprompt.
+  # 0 unmatched, 1 prompt, 2 direct tau, 3 other matched/nonprompt, 5 prompt/tau pT mismatch.
   - status
   # Matched final-state electron kinematics; NaN for unmatched candidates.
   - gen_pt

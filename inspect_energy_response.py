@@ -23,7 +23,7 @@ from tqdm import tqdm
 import uproot
 import yaml
 
-from truth_matching import match_electron_truth
+from truth_matching import electron_pt_mismatch, match_electron_truth
 from ntuplizer import discover_files, root_url
 from workflow.plotting import configure_style, save_plot
 
@@ -70,7 +70,8 @@ def candidate_frame(arrays, config):
     reco = ak.zip({key: arrays["ScoutingElectron_" + key] for key in RECO_FIELDS})
     gen = ak.zip({key: arrays["GenPart_" + key] for key in GEN_FIELDS})
     # The quick cache and full production share this exact matching implementation.
-    matched = match_electron_truth(reco, gen, config["gen_matching_dR"])
+    matched = match_electron_truth(reco, gen, config["gen_matching_dR"],
+                                   config.get("electron_response_max_relative_pt"))
 
     def flat(values):
         return ak.to_numpy(ak.flatten(ak.fill_none(values, np.nan)))
@@ -85,6 +86,11 @@ def candidate_frame(arrays, config):
 
 
 def signal_frame(frame, config):
+    if config.get("electron_response_max_relative_pt") is not None:
+        frame = frame.copy()
+        failed = electron_pt_mismatch(frame.status, frame.pt, frame.gen_pt,
+                                      config["electron_response_max_relative_pt"])
+        frame.loc[failed, "status"] = 5
     frame = frame[frame.status.isin(config["signal_status"])].copy()
     frame["weight"] = frame[config["parquet_weight_column"]] if config.get("weight_branch") else 1.
     frame["reco_energy"] = np.sqrt((frame.pt * np.cosh(frame.eta)) ** 2 + frame.m ** 2)
@@ -175,7 +181,8 @@ def cache_nano(config, nano, output):
     if writer is None:
         raise ValueError("No events in the temporary Nano; no diagnostic Parquet was created")
     Path(str(output) + ".json").write_text(json.dumps(dict(report, diagnostic_cache=True,
-        gen_matching_dR=config["gen_matching_dR"], gen_matching_relative_pt=None), indent=2) + "\n")
+        gen_matching_dR=config["gen_matching_dR"], gen_matching_relative_pt=None,
+        electron_response_max_relative_pt=config.get("electron_response_max_relative_pt")), indent=2) + "\n")
     return report
 
 
@@ -244,8 +251,10 @@ def validate_config(config):
     for name in ("gen_matching_dR", "relative_pt_threshold"):
         if not np.isfinite(config[name]) or config[name] <= 0:
             raise ValueError(name + " must be finite and positive")
-    if not config["signal_status"] or set(config["signal_status"]) - {1, 2}:
-        raise ValueError("This diagnostic requires DY signal status 1 and/or 2")
+    if not config["signal_status"] or set(config["signal_status"]) - {1, 2, 5}:
+        raise ValueError("This diagnostic requires DY prompt/tau status 1, 2 and/or 5")
+    if config.get("electron_response_max_relative_pt") is not None:
+        electron_pt_mismatch(1, 1., 1., config["electron_response_max_relative_pt"])
     # Never accept a hidden matching cut that would sculpt the response tails.
     if config.get("gen_matching_relative_pt") is not None:
         raise ValueError("Do not apply a relative-pT matching cut to this diagnostic")
@@ -381,7 +390,7 @@ def plot(config, bins, histograms, output):
                 bbox=dict(facecolor="white", alpha=.85, edgecolor="none"))
         if not hist["entries"]:
             ax.text(.5, .5, "No DY signal candidates", transform=ax.transAxes, ha="center", fontsize=13)
-        note = (f"Signal status {config['signal_status']}; {config.get('reco_requirement', 'all reco')}; no additional relative-pT cut\n"
+        note = (f"Diagnostic status {config['signal_status']}; {config.get('reco_requirement', 'all reco')}; no additional relative-pT cut\n"
                 "Out-of-range candidates are counted in summary.csv; colors show weighted entries per 2D bin.")
         if spec.get("note"):
             note += "\n" + spec["note"]

@@ -156,6 +156,7 @@ def DeriveEffectiveAreaAnalysis(**kwargs):
         columns=kwargs.get("input_columns"), max_rows_per_sample=limit,
         batch_size=kwargs.get("batch_size", 100000),
         sampling=kwargs.get("sampling"), progress=kwargs.get("progress", False),
+        electron_response_max_relative_pt=kwargs.get("electron_response_max_relative_pt"),
     )
     for sample, info in report.items():
         print(f"Read {info['rows']:,} input candidates from {sample}")
