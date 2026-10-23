@@ -807,9 +807,8 @@ def ValidateIDAnalysis(**kwargs):
         roc_reweight = kwargs.get("roc_reweight")
         if roc_reweight:
             source, target = roc_reweight["source"], roc_reweight["target"]
-            if not datasets or source == target or any(name not in datasets or datasets[name]["is_signal"]
-                                                      for name in (source, target)):
-                raise ValueError("ROC reweighting requires distinct named background source and target samples")
+            if not datasets or source == target or any(name not in datasets for name in (source, target)):
+                raise ValueError("ROC reweighting requires distinct named source and target samples")
             source_mask = df.process == source
             columns = list(dict.fromkeys([*roc_reweight["binning"], "weight"]))
             weights, report = kinematic_weights(df.loc[source_mask, columns], df.loc[df.process == target, columns],

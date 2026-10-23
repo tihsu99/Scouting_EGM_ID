@@ -131,7 +131,7 @@ workflow:
   InspectDistribution:
     regions: [Barrel, Endcap]
     kinematic_reweighting: BACKGROUND
-    reweight_binning:
+    reweight_binning: &photon_reweight_binning
       pt: [10, 15, 20, 30, 50, 80, 100, 150, 200, 300, 500, 800, 1200, 2000, 5000, 10000]
       eta: [-2.5, -2.2, -2.0, -1.5666, -1.4442, -1.0, 0, 1.0, 1.4442, 1.5666, 2.0, 2.2, 2.5]
     stitch_binning: null
@@ -244,9 +244,14 @@ evaluation:
     GJet:
       signal: GJetSignal
       backgrounds: [GJetBackground]
-      label: 'Winter25 GJet: prompt vs unmatched/nonprompt; physical weights'
+      label: 'Winter25 GJet: prompt vs unmatched/nonprompt; ROC signal matched to background in pT and eta'
   validation:
     connect_sources: [PhotonIso]
+    # Match the training target using held-out pre-ID candidates; preserve base weights for other plots.
+    roc_reweight:
+      source: GJetSignal
+      target: GJetBackground
+      binning: *photon_reweight_binning
     # Preserve the TnP reference's raw I/E, without EA or pT corrections.
     define_variable:
       reference_energy: {expression: 'pt*cosh(eta)', lower: 1}
@@ -286,7 +291,7 @@ evaluation:
     source_markers: {PhotonIso: o, Default: s}
     roc_outputdir: '{outputdir}/ROC'
     roc_filename_prefix: '{comparison}_'
-    # Pies show unweighted status counts before ID; ROC efficiencies retain physical weights.
+    # Pies show unweighted status counts before ID; ROC uses the separate reweighted column.
     composition:
       enabled: true
       column: status
