@@ -5,11 +5,12 @@ import numpy as np
 
 from workflow.data import edges, efficiency_stats
 from workflow.working_points import cut_bounds
+from workflow.plotting import resolve_plot_style
 
 
 def plot_cut_distribution(samples, variable, specification, wp_sources, region, plot_style=None):
     """Return a figure and auditable histogram/cut metrics, using the supplied base weights."""
-    style = plot_style or {}
+    style = resolve_plot_style(plot_style)
     settings = style.get("cut_distributions", {})
     options = dict(specification, **specification.get("by_region", {}).get(region, {}))
     bins = edges(options["binning"])
@@ -23,7 +24,9 @@ def plot_cut_distribution(samples, variable, specification, wp_sources, region, 
     right.tick_params(axis="y", labelsize="small")
     right.yaxis.label.set_size("medium")
     cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
-    palette = style.get("wp_palette", cycle)
+    palette = settings.get("wp_palette", style.get("wp_palette", cycle))
+    cut_line_style = dict(linestyle=":", linewidth=1.2, alpha=.7)
+    cut_line_style.update(settings.get("wp_lines", {}))
     markers = style.get("source_markers", {})
     report = dict(variable=variable, region=region, selection="before ID", edges=bins.tolist(),
                   normalization="unit area within displayed range",
@@ -67,11 +70,11 @@ def plot_cut_distribution(samples, variable, specification, wp_sources, region, 
             source=source, name=wp.name, label=wp.meta.get("label", wp.name))
         description = " and ".join(f"{operator} {value:.6g}" for operator, value in bounds)
         outside = any(not bins[0] <= value <= bins[-1] for _, value in bounds)
-        handles.append(Line2D([], [], color=color, linestyle=":", marker=marker, markersize=4,
+        handles.append(Line2D([], [], color=color, marker=marker, markersize=4, **cut_line_style,
                               label=f"{label}: {description}" + (" (outside range)" if outside else "")))
         for _, value in bounds:
             if bins[0] <= value <= bins[-1]:
-                ax.axvline(value, color=color, linestyle=":", linewidth=1.2, alpha=.7)
+                ax.axvline(value, color=color, **cut_line_style)
         entry = dict(source=source, wp=wp.name, bounds=bounds, outside_range=outside, samples={})
         for name, (values, weights) in samples.items():
             values, weights = np.asarray(values), np.asarray(weights, dtype=float)
@@ -97,7 +100,7 @@ def plot_cut_distribution(samples, variable, specification, wp_sources, region, 
             continue
         right.plot(*zip(*points), color=colors[name], **efficiency_style)
     if any(efficiency_points.values()):
-        handles.append(Line2D([], [], color="0.5", linestyle="--", alpha=.5, label="Single-cut efficiency"))
+        handles.append(Line2D([], [], color="0.5", **efficiency_style, label="Single-cut efficiency"))
     ax.set(xlim=(bins[0], bins[-1]), xlabel=options.get("label", variable), ylabel="Normalized density",
            xscale=xscale, yscale=yscale)
     ax.margins(y=.25 if yscale == "linear" else .35)

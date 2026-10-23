@@ -1,5 +1,6 @@
 """Shared CMS presentation for the Matplotlib analysis plots."""
 from pathlib import Path
+from copy import deepcopy
 import inspect
 import math
 
@@ -10,8 +11,56 @@ from matplotlib.patches import Wedge, Circle
 from matplotlib.text import Text
 
 
+ID_COMPARISON_STYLE = {
+    "formats": ["pdf", "png"],
+    "wp_label_format": "{label}",
+    "info_box": {"reserve_space": True, "show_details": False,
+                 "heading": {"fontweight": "bold", "fontsize": 18}, "text": {"fontsize": 14},
+                 "box": {"loc": "upper left", "pad": .5, "borderpad": .7, "frameon": False}},
+    "efficiency_per_process": True, "efficiency_overlay_signal": True,
+    "efficiency_linestyles": {"signal": "-", "background": "--"},
+    "efficiency_ylim": [0, 1.2], "efficiency_x_errors": True,
+    "wp_palette": ["#0072B2", "#56B4E9", "#3B4CC0", "#009E73", "#111111", "#707070"],
+    "roc_box_aspect": 1, "roc_margins": {"x": .15, "y": .5},
+    "max_series_per_panel": 24,
+    "rc_params": {"figure.figsize": [12, 9], "font.size": 20, "legend.fontsize": 11,
+                  "legend.title_fontsize": 12, "savefig.dpi": 150},
+    "legend": {"loc": "upper center", "bbox_to_anchor": [.5, -.15], "ncol": 3,
+               "frameon": False, "borderaxespad": 0},
+    "cms_label": {"label": "Preliminary", "data": False, "loc": 0, "fontsize": 20},
+    "cut_distributions": {
+        "wp_palette": ["#8C1D18", "#C73E1D", "#F07C13", "#B8336A", "#A65F00", "#E4A11B"],
+        "wp_lines": {"linestyle": "-", "linewidth": 2, "alpha": 1},
+        "efficiency_curve": {"linestyle": "--", "linewidth": 2, "alpha": 1, "markersize": 4.5},
+    },
+    "composition": {"enabled": False, "size": 44, "fontsize": 9, "min_fraction_label": .1,
+                    "box": {"loc": "lower right", "bbox_to_anchor": [0, .08, 1, 1],
+                            "pad": 0, "borderpad": .7, "frameon": False}},
+}
+
+
+def resolve_plot_style(plot_style=None):
+    """Share the ID comparison presentation while retaining explicit YAML overrides."""
+    settings = deepcopy(plot_style or {})
+    preset = settings.pop("preset", None)
+    if preset is None:
+        return settings
+    if preset != "id_comparison":
+        raise ValueError(f"Unknown plot style preset: {preset}")
+
+    def merge(base, overrides):
+        for key, value in overrides.items():
+            if isinstance(value, dict) and isinstance(base.get(key), dict):
+                merge(base[key], value)
+            else:
+                base[key] = value
+        return base
+
+    return merge(deepcopy(ID_COMPARISON_STYLE), settings)
+
+
 def configure_style(plot_style=None):
-    settings = plot_style or {}
+    settings = resolve_plot_style(plot_style)
     hep.style.use(hep.style.CMS)
     plt.rcParams.update({"axes.grid": False})
     plt.rcParams.update(settings.get("rc_params", {}))
@@ -20,12 +69,12 @@ def configure_style(plot_style=None):
 def add_legend(ax, plot_style=None, **kwargs):
     options = dict(loc="lower right", frameon=False, borderaxespad=1.5)
     options.update(kwargs)
-    options.update((plot_style or {}).get("legend", {}))
+    options.update(resolve_plot_style(plot_style).get("legend", {}))
     return ax.legend(**options)
 
 
 def series_panels(count, plot_style=None):
-    limit = (plot_style or {}).get("max_series_per_panel", 8)
+    limit = resolve_plot_style(plot_style).get("max_series_per_panel", 8)
     if not isinstance(limit, int) or limit < 1:
         raise ValueError("max_series_per_panel must be a positive integer")
     panels = max(1, math.ceil(count / limit))
@@ -71,7 +120,7 @@ def composition_panel(samples, settings):
 
 
 def save_plot(fig, path, plot_style=None):
-    settings = plot_style or {}
+    settings = resolve_plot_style(plot_style)
     # Omit collision energy unless the campaign explicitly supplies it.
     label = dict(label="Preliminary", data=False, com=None, loc=0)
     label.update(settings.get("cms_label", {}))

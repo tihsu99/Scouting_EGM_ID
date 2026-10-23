@@ -9,6 +9,73 @@ import numpy as np
 import yaml
 
 
+ID_USAGE_MARKDOWN = r"""## Using the exported ID
+
+Use the matching `scouting_id.json.gz` and `apply_id.py` from this release.
+Run the examples from the directory containing these two files. The helper is
+standalone; the training repository, YAML files and separate calibration JSON
+are not needed. Keep different releases in separate directories.
+
+The JSON uses correctionlib schema v2. Complete WPs are in
+`CorrectionSet.compound`; `__id__/...` entries are internal components.
+Native evaluation returns `1.0` for pass and `0.0` for fail. `evaluate_id`
+returns a Boolean array, with one decision per candidate.
+
+Provide raw candidate columns with their original names. Use GeV for pT and
+absolute isolation, and the event rho for each candidate. Do not pre-apply EA,
+pT/scale corrections, isolation division or clipping: the JSON already applies
+the configured feature definitions, region selections and WP cuts. Only the
+inputs listed by each WP are required; truth labels and event weights are not
+inputs to this ID decision. Extra DataFrame columns are allowed.
+
+Install the dependencies if needed:
+
+```bash
+python3 -m pip install correctionlib numpy pandas pyarrow
+```
+
+### Python: inspect inputs and evaluate all WPs
+
+Replace `candidates.parquet` with a candidate-level Parquet containing the raw
+columns. WP names and input order are read from the supplied JSON, so the same
+example works with either release.
+
+```python
+import correctionlib
+import pandas as pd
+
+from apply_id import evaluate_id, id_evaluators, id_inputs
+
+ids = correctionlib.CorrectionSet.from_file("scouting_id.json.gz")
+evaluators = id_evaluators(ids)
+names = list(evaluators)
+
+for name, wp in evaluators.items():
+    print(name, [(item.name, item.type) for item in id_inputs(wp)])
+
+candidates = pd.read_parquet("candidates.parquet")
+# To apply one WP, set names to a list containing its printed name.
+for name in names:
+    candidates[f"pass_{name}"] = evaluate_id(ids, name, candidates)
+
+print(candidates[[f"pass_{name}" for name in names]].head())
+```
+
+### Command line: stream a large Parquet and save decisions
+
+This retains all input columns and adds Boolean `pass_<source>/<WP>` columns.
+The output must be a new file. Add `--wps` followed by names printed above to
+select particular WPs; omitting it evaluates all WPs in the JSON.
+
+```bash
+python3 apply_id.py scouting_id.json.gz \
+  --input candidates.parquet \
+  --output candidates_with_id.parquet \
+  --batch-size 200000
+```
+"""
+
+
 def load_id_config(path):
     """Read an existing validation recipe or a standalone pipeline's evaluation section."""
     path = Path(path).resolve()
@@ -183,7 +250,7 @@ def calibration_table_lines(definitions, calibration, precision):
 
 
 def print_id_table(wps_by_region, output=None, requirement=None, region_definitions=None, precision=6,
-                   definitions=None, calibration=None):
+                   definitions=None, calibration=None, include_usage=False):
     """Print a Markdown cut table, optionally save it, and return its contents."""
     lines = ["# Cut-based ID", ""]
     if requirement:
@@ -210,6 +277,9 @@ def print_id_table(wps_by_region, output=None, requirement=None, region_definiti
                   "Fixed cuts use inclusive bounds. WP names denote nominal optimization targets; "
                   "efficiencies after fixed cuts must be measured.",
                   f"Numbers are displayed to {precision} significant digits; JSON retains the exact thresholds and coefficients.", ""])
+    if include_usage:
+        lines.extend(ID_USAGE_MARKDOWN.splitlines())
+        lines.append("")
     markdown = "\n".join(lines)
     if output is not None:
         path = Path(output)

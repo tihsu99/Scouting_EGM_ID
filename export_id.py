@@ -53,7 +53,7 @@ def export_id(config_path, outputdir, training_dir=None, correction_lib=None):
     shutil.copyfile(Path(__file__).with_name("apply_id.py"), destinations[2])
     definitions = dict(preparation.get("define_variable", {}), **config.get("validation", {}).get("define_variable", {}))
     print_id_table(wps_by_region, destinations[3], config["correctionlib"]["requirement"], base["region_definition"],
-                   definitions=definitions, calibration=calibration)
+                   definitions=definitions, calibration=calibration, include_usage=True)
     return destinations[0]
 
 

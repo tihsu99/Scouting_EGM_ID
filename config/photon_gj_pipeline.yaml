@@ -226,6 +226,11 @@ evaluation:
       path: '{training_dir}/{region}/CutBased_WPs_PhotonIso_TMVA_seq.json'
       isolation_denominator: none
       labels: {WP70: Tight (70%), WP80: Medium (80%), WP90: Loose (90%)}
+    Default:
+      path: '{config_dir}/../ref_wp/default_photon_{region}.json'
+      isolation_denominator: E = max(1, pt*cosh(eta))
+      variable_map: {relecalIso: relecalIso_E, relhcalIso: relhcalIso_E}
+      labels: {ScoutingPhotonCustomizev1: Customized reference}
   datasets:
     GJetSignal:
       label: GJet prompt photons (status 1)
@@ -242,18 +247,61 @@ evaluation:
       label: 'Winter25 GJet: prompt vs unmatched/nonprompt; physical weights'
   validation:
     connect_sources: [PhotonIso]
+    # Preserve the TnP reference's raw I/E, without EA or pT corrections.
+    define_variable:
+      reference_energy: {expression: 'pt*cosh(eta)', lower: 1}
+      relecalIso_E: ecalIso/reference_energy
+      relhcalIso_E: hcalIso/reference_energy
     # Keep physical weights when projecting columns; never substitute training_weight.
     input_columns: [sample, status, weight, pt, eta, ScoutingRho.fixedGridRhoFastjetAll,
-      sigmaIetaIeta, hOverE_calibrated, ecalIso_calibrated, hcalIso_calibrated]
+      sigmaIetaIeta, hOverE, ecalIso, hcalIso,
+      hOverE_calibrated, ecalIso_calibrated, hcalIso_calibrated]
+    # The shared cut plots show pre-ID shapes, WP boundaries and single-cut efficiencies.
+    cut_distributions:
+      sigmaIetaIeta:
+        label: '$\sigma_{i\eta i\eta}$'
+        binning: [0, 0.05, 50]
+        by_region:
+          Endcap: {binning: [0, 0.08, 80]}
+      hOverE_calibrated:
+        label: 'Corrected $H/E$'
+        binning: [0, 0.3, 60]
+      ecalIso_calibrated:
+        label: 'Corrected ECAL isolation [GeV]'
+        binning: [0, 20, 80]
+      hcalIso_calibrated:
+        label: 'Corrected HCAL isolation [GeV]'
+        binning: [0, 20, 80]
+      hOverE:
+        label: 'Raw $H/E$'
+        binning: [0, 0.3, 60]
+      relecalIso_E:
+        label: 'Raw ECAL isolation / $E$'
+        binning: [0, 1, 80]
+      relhcalIso_E:
+        label: 'Raw HCAL isolation / $E$'
+        binning: [0, 2, 80]
   plot_style:
-    source_markers: {PhotonIso: o}
-    wp_label_format: '{label}'
-    efficiency_linestyles: {signal: '-', background: '-'}
+    preset: id_comparison
+    source_markers: {PhotonIso: o, Default: s}
     roc_outputdir: '{outputdir}/ROC'
     roc_filename_prefix: '{comparison}_'
+    # Pies show unweighted status counts before ID; ROC efficiencies retain physical weights.
+    composition:
+      enabled: true
+      column: status
+      categories:
+        1: {label: prompt, color: '#56B4E9'}
+        3: {label: nonprompt, color: '#CC79A7'}
+        0: {label: unmatched, color: '#999999'}
+    cut_distributions:
+      samples:
+        GJetSignal: {label: GJet prompt, color: '#3B4CC0'}
+        GJetBackground: {label: GJet unmatched/nonprompt, color: '#007F8B'}
+    # PhotonIso WP70, WP80, WP90, then the customized reference.
     process_palettes:
-      GJetSignal: ['#7F2704', '#D94801', '#F58D3C']
-      GJetBackground: ['#123B63', '#236C99', '#4E9FC1']
+      GJetSignal: ['#7F2704', '#D94801', '#F58D3C', '#955B48']
+      GJetBackground: ['#123B63', '#236C99', '#4E9FC1', '#606B87']
 calibration_samples:
 - GJ_Winter25_HT_1000_PTG_100to200
 - GJ_Winter25_HT_1000_PTG_10to100

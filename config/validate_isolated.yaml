@@ -168,44 +168,23 @@ validation:
       binning: [0, 0.2, 80]
 
 plot_style:
-  formats: [pdf, png]
+  preset: id_comparison
   cut_distributions:
     samples:
       DY: {label: DY, color: "#3B4CC0"}
       TT: {label: '$t\bar{t}$', color: "#007F8B"}
-      QCD: {label: QCD, color: "#D55E00"}
+      QCD: {label: QCD, color: "#8073AC"}
       Zprime: {label: Zprime, color: "#3B4CC0"}
-    efficiency_curve: {alpha: 0.35, linewidth: 1.1, linestyle: "--", markersize: 3}
     legend: {loc: upper right, ncol: 1, fontsize: 10, borderaxespad: 0.8}
   composition:
     enabled: true
     column: status
-    size: 44
-    fontsize: 9
-    min_fraction_label: 0.1
-    box: {loc: lower right, bbox_to_anchor: [0, 0.08, 1, 1], pad: 0, borderpad: 0.7, frameon: false}
     categories:
       1: {label: prompt, color: "#56B4E9"}
       2: {label: 'from $\tau$', color: "#E69F00"}
       3: {label: nonprompt, color: "#CC79A7"}
       0: {label: unmatched, color: "#999999"}
   source_markers: {Iso: o, Default: s}
-  wp_label_format: "{label}"
-  info_box:
-    reserve_space: true
-    show_details: false
-    heading: {fontweight: bold, fontsize: 18}
-    text: {fontsize: 14}
-    box: {loc: upper left, pad: 0.5, borderpad: 0.7, frameon: false}
-  efficiency_per_process: true
-  efficiency_overlay_signal: true
-  efficiency_linestyles: {signal: "-", background: "--"}
-  efficiency_ylim: [0, 1.2]
-  efficiency_x_errors: true
-  # Fallback palette for plots without a named background sample.
-  wp_palette: ["#0072B2", "#56B4E9", "#3B4CC0", "#009E73", "#111111", "#707070"]
-  roc_box_aspect: 1
-  roc_margins: {x: 0.15, y: 0.5}
   roc_outputdir: "{outputdir}/ROC"
   roc_filename_prefix: "{comparison}_"
   # ROC overlays distinguish samples with separate palettes.
@@ -218,23 +197,5 @@ plot_style:
     QCD: ["#D55E00", "#E69F00", "#CC6677", "#AA3377", "#808080", "#B0B0B0"]
     DY: &signal_palette ["#0072B2", "#56B4E9", "#3B4CC0", "#009E73", "#111111", "#707070"]
     Zprime: *signal_palette
-  # One overview figure contains all WPs; dedicated figures contain one WP each.
-  max_series_per_panel: 24
-  rc_params:
-    figure.figsize: [12, 9]
-    font.size: 20
-    legend.fontsize: 11
-    legend.title_fontsize: 12
-    savefig.dpi: 150
-  legend:
-    loc: upper center
-    bbox_to_anchor: [0.5, -0.15]
-    ncol: 3
-    frameon: false
-    borderaxespad: 0
   cms_label:
-    label: Preliminary
-    data: false
     com: 13.6
-    loc: 0
-    fontsize: 20

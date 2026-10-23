@@ -14,7 +14,7 @@ import colorsys
 from workflow.data import edges, efficiency_stats, kinematic_weights
 from workflow.working_points import WP, load_tmva_wp_file, load_configured_wps, pass_fixed_cuts, print_id_table
 from workflow.InspectDistribution import define_variables
-from workflow.plotting import add_legend, configure_style, save_plot, series_panels, composition_panel
+from workflow.plotting import add_legend, configure_style, save_plot, series_panels, composition_panel, resolve_plot_style
 from workflow.cut_plots import plot_cut_distribution
 
 def lighten_color(color, amount=0.3):
@@ -80,8 +80,9 @@ class ValidationAnalyzer:
         dedicated_wps: bool = False,
         regions: Optional[List[str]] = None,
         roc_weight_col: Optional[str] = None,
+        roc_selection_label: str = "",
     ):
-        self.plot_style = plot_style
+        self.plot_style = plot_style = resolve_plot_style(plot_style)
         configure_style(plot_style)
         # Only a missing weight column is added; keep large evaluation tables shared.
         self.df = df.copy(deep=False)
@@ -91,6 +92,7 @@ class ValidationAnalyzer:
         self.region_col = region_col
         self.weight_col = weight_col
         self.roc_weight_col = roc_weight_col
+        self.roc_selection_label = roc_selection_label
         self.processes = processes
         self.connect_sources = set(connect_sources)
         self.dedicated_wps = dedicated_wps
@@ -267,10 +269,13 @@ class ValidationAnalyzer:
     def _save(self, fig: plt.Figure, path: str) -> None:
         save_plot(fig, path, self.plot_style)
 
-    def _annotate_plot(self, ax, region, title="", context="", categories=None, show_composition=True):
+    def _annotate_plot(self, ax, region, title="", context="", categories=None, show_composition=False,
+                       selection=""):
         info = (self.plot_style or {}).get("info_box")
         if info is not None:
             content = [TextArea(region, textprops=info.get("heading", {}))]
+            if selection:
+                content.append(TextArea(selection, textprops=info.get("text", {})))
             if info.get("show_details", True):
                 content.extend(TextArea(text, textprops=info.get("text", {})) for text in (title, context) if text)
             box = AnchoredOffsetbox(child=VPacker(children=content, align="left", pad=0, sep=4),
@@ -280,6 +285,8 @@ class ValidationAnalyzer:
             ax.set_title("")
         else:
             heading = region
+            if selection:
+                heading += "\n" + selection
             if title:
                 heading += (" | " if heading else "") + title
             if context:
@@ -370,7 +377,8 @@ class ValidationAnalyzer:
                             ax.plot(bkg_eff, sig_eff, marker=marker,
                                     linestyle="none", color=color, markersize=8, fillstyle="full",
                                     markerfacecolor=color, zorder=3,
-                                    label=(f"{self._wp_label(source, wp)} / {background}" if self.processes
+                                    label=((f"{self._wp_label(source, wp)} / {background}" if len(backgrounds) > 1
+                                            else self._wp_label(source, wp)) if self.processes
                                            else source if wp is wps[0] else "_nolegend_"))
                             if not self.processes:
                                 annotations.setdefault((bkg_eff, sig_eff), []).append(name)
@@ -382,12 +390,14 @@ class ValidationAnalyzer:
                             xytext=(5, -7 if y > .85 else 5),
                             va="top" if y > .85 else "bottom", fontsize="x-small")
             ax.set(xlabel="Background efficiency", ylabel="Signal efficiency")
-            self._annotate_plot(ax, reg, context=self.label)
+            self._annotate_plot(ax, reg, context=self.label, show_composition=True,
+                                selection=self.roc_selection_label)
             missing = [self._category_label(name) for name, mask in categories.items() if not mask.any()]
             if missing:
                 ax.text(.04, .08, "No entries: " + ", ".join(missing), transform=ax.transAxes, fontsize="small")
             ax.margins(**(self.plot_style or {}).get("roc_margins", {"x": .15, "y": .2}))
-            add_legend(ax, self.plot_style)
+            title = f"{signal} vs {backgrounds[0]}" if self.processes and len(backgrounds) == 1 else None
+            add_legend(ax, self.plot_style, title=title)
             self._save(fig, os.path.join(outdir, f"{filename_prefix}roc_region-{reg}.png"))
             pd.DataFrame(rows).to_csv(os.path.join(outdir, f"{filename_prefix}roc_region-{reg}.csv"), index=False)
             if reg in self.composition:
@@ -840,6 +850,7 @@ def ValidateIDAnalysis(**kwargs):
             region_col="region",
             weight_col="weight",
             label=kwargs.get("label", ""),
+            roc_selection_label=kwargs.get("id_requirement", requirement) or "",
             **options,
         )
 
@@ -855,7 +866,8 @@ def ValidateIDAnalysis(**kwargs):
             if subset.empty and not kwargs.get("allow_empty_slices", False):
                 raise ValueError(f"No validation entries in {region}/{label}")
             pt_label = rf"$p_T \geq {low}$ GeV" if high is None else rf"${low} \leq p_T < {high}$ GeV"
-            ValidationAnalyzer(subset, wp_sources, label=pt_label + "\n" + kwargs.get("label", ""),
+            ValidationAnalyzer(subset, wp_sources, label=kwargs.get("label", ""),
+                               roc_selection_label=pt_label,
                                **options).plot_roc_by_region(
                 outdir=roc_out if "roc_outputdir" in plot_style else os.path.join(reg_out, label),
                 filename_prefix=f"{roc_prefix}{label}_" if "roc_outputdir" in plot_style else roc_prefix)
