@@ -291,9 +291,8 @@ evaluation:
     source_markers: {PhotonIso: o, Default: s}
     roc_outputdir: '{outputdir}/ROC'
     roc_filename_prefix: '{comparison}_'
-    # Pies show unweighted status counts before ID; ROC uses the separate reweighted column.
     composition:
-      enabled: true
+      enabled: false
       column: status
       categories:
         1: {label: prompt, color: '#56B4E9'}
