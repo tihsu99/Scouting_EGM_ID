@@ -215,6 +215,45 @@ workflow:
         label: $\rho$ [GeV]
         binning: [0, 80, 16]
     variables: {}
+# Export and evaluate the completed WPs using the existing held-out tables.
+# --prepared-dir here is PREPARED_ROOT/photon_gj/data, not PREPARED_ROOT.
+evaluation:
+  correctionlib:
+    version: 1
+    requirement: pt > 10
+  wp_sources:
+    PhotonIso:
+      path: '{training_dir}/{region}/CutBased_WPs_PhotonIso_TMVA_seq.json'
+      isolation_denominator: none
+      labels: {WP70: Tight (70%), WP80: Medium (80%), WP90: Loose (90%)}
+  datasets:
+    GJetSignal:
+      label: GJet prompt photons (status 1)
+      path: '{prepared_dir}/{region}/valid/signal.parquet'
+      requirement: (status == 1) & (pt > 10)
+    GJetBackground:
+      label: GJet photon candidates (status 0,3)
+      path: '{prepared_dir}/{region}/valid/background.parquet'
+      requirement: ((status == 0) | (status == 3)) & (pt > 10)
+  comparisons:
+    GJet:
+      signal: GJetSignal
+      backgrounds: [GJetBackground]
+      label: 'Winter25 GJet: prompt vs unmatched/nonprompt; physical weights'
+  validation:
+    connect_sources: [PhotonIso]
+    # Keep physical weights when projecting columns; never substitute training_weight.
+    input_columns: [sample, status, weight, pt, eta, ScoutingRho.fixedGridRhoFastjetAll,
+      sigmaIetaIeta, hOverE_calibrated, ecalIso_calibrated, hcalIso_calibrated]
+  plot_style:
+    source_markers: {PhotonIso: o}
+    wp_label_format: '{label}'
+    efficiency_linestyles: {signal: '-', background: '-'}
+    roc_outputdir: '{outputdir}/ROC'
+    roc_filename_prefix: '{comparison}_'
+    process_palettes:
+      GJetSignal: ['#7F2704', '#D94801', '#F58D3C']
+      GJetBackground: ['#123B63', '#236C99', '#4E9FC1']
 calibration_samples:
 - GJ_Winter25_HT_1000_PTG_100to200
 - GJ_Winter25_HT_1000_PTG_10to100

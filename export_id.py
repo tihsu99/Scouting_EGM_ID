@@ -8,17 +8,14 @@ from pathlib import Path
 import shutil
 
 import correctionlib
-import yaml
 
 from workflow.IDCorrection import build_correction_set
-from workflow.working_points import configured_wp_sources, load_configured_wps, print_id_table
+from workflow.working_points import configured_wp_sources, load_configured_wps, load_id_config, print_id_table
 
 
 def export_id(config_path, outputdir, training_dir=None, correction_lib=None):
     config_path = Path(config_path).resolve()
-    config = yaml.safe_load(config_path.read_text())
-    base_path = (config_path.parent / config["base_config"]).resolve()
-    base = yaml.safe_load(base_path.read_text())
+    config, base, base_path = load_id_config(config_path)
     preparation = base["workflow"]["InspectDistribution"]
     training_dir = Path(training_dir or base["workflow"]["TrainCutBasedID_TMVA"]["outputdir"]).resolve()
     calibration_path = Path(correction_lib or preparation["correction_lib"]).resolve()
@@ -60,7 +57,7 @@ def export_id(config_path, outputdir, training_dir=None, correction_lib=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("config", help="Validation YAML containing a correctionlib section")
+    parser.add_argument("config", help="Validation YAML or standalone pipeline with an evaluation section")
     parser.add_argument("--outputdir", required=True)
     parser.add_argument("--training-dir", help="Completed regional WP directory")
     parser.add_argument("--correction-lib", help="Completed calibration JSON")

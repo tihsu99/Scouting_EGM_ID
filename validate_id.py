@@ -9,15 +9,13 @@ import yaml
 
 from workflow.InspectDistribution import InspectDistributionAnalysis
 from workflow.ValidateID import ValidateIDAnalysis
-from workflow.working_points import configured_wp_sources
+from workflow.working_points import configured_wp_sources, load_id_config
 
 
 def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=None,
         correction_lib=None, steps=("prepare", "plot"), id_correctionlib=None):
     config_path = Path(config_path).resolve()
-    cfg = yaml.safe_load(config_path.read_text())
-    base_path = (config_path.parent / cfg["base_config"]).resolve()
-    base = yaml.safe_load(base_path.read_text())
+    cfg, base, _ = load_id_config(config_path)
     preparation = deepcopy(base["workflow"]["InspectDistribution"])
     paths = dict(inputdir=str(Path(inputdir or base["inputdir"]).resolve()),
                  prepared_dir=str(Path(prepared_dir or preparation["storedir"]).resolve()),

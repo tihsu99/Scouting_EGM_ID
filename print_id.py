@@ -3,15 +3,12 @@
 import argparse
 from pathlib import Path
 
-import yaml
-
-from workflow.working_points import configured_wp_sources, load_configured_wps, print_id_table
+from workflow.working_points import configured_wp_sources, load_configured_wps, load_id_config, print_id_table
 
 
 def print_configured_id(config_path, output, training_dir=None):
     config_path = Path(config_path).resolve()
-    config = yaml.safe_load(config_path.read_text())
-    base = yaml.safe_load((config_path.parent / config["base_config"]).read_text())
+    config, base, _ = load_id_config(config_path)
     training_dir = Path(training_dir or base["workflow"]["TrainCutBasedID_TMVA"]["outputdir"]).resolve()
     sources = configured_wp_sources(base, config)
     wps = {}
@@ -25,7 +22,7 @@ def print_configured_id(config_path, output, training_dir=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("config", help="Validation YAML with base_config and wp_sources")
+    parser.add_argument("config", help="Validation YAML or standalone pipeline with an evaluation section")
     parser.add_argument("--output", required=True, help="Markdown output path")
     parser.add_argument("--training-dir", help="Directory containing the completed regional WP JSON files")
     args = parser.parse_args()

@@ -6,6 +6,32 @@ from pathlib import Path
 from typing import Dict, Tuple
 
 import numpy as np
+import yaml
+
+
+def load_id_config(path):
+    """Read an existing validation recipe or a standalone pipeline's evaluation section."""
+    path = Path(path).resolve()
+    config = yaml.safe_load(path.read_text())
+    if "base_config" in config:
+        base_path = (path.parent / config["base_config"]).resolve()
+        return config, yaml.safe_load(base_path.read_text()), base_path
+    if "workflow" not in config or "evaluation" not in config:
+        raise ValueError("ID configuration needs base_config or an inline workflow with evaluation")
+    base = deepcopy(config.get("shared", {}))
+    base["workflow"] = deepcopy(config["workflow"])
+    for module, overrides in config.get("workflow_overrides", {}).items():
+        base["workflow"][module].update(overrides)
+    preparation = base["workflow"]["InspectDistribution"]
+    base["workflow"]["InspectDistribution"] = dict(config.get("shared", {}), **preparation)
+    evaluation = deepcopy(config["evaluation"])
+    validation = deepcopy(base["workflow"]["ValidateID"])
+    evaluation.setdefault("regions", validation.pop("regions"))
+    validation.pop("label", None)
+    validation.update(evaluation.get("validation", {}))
+    evaluation["validation"] = validation
+    evaluation["plot_style"] = dict(base.get("plot_style", {}), **evaluation.get("plot_style", {}))
+    return evaluation, base, path
 
 
 @dataclass
@@ -104,7 +130,7 @@ def cut_bounds(wp, variable):
 
 def print_id_table(wps_by_region, output=None, requirement=None, region_definitions=None, precision=6):
     """Print a Markdown cut table, optionally save it, and return its contents."""
-    lines = ["# Cut-based electron ID", ""]
+    lines = ["# Cut-based ID", ""]
     if requirement:
         lines.extend([f"Common selection: `{requirement}`.", ""])
     for region, sources in wps_by_region.items():
