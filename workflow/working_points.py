@@ -129,7 +129,7 @@ def cut_bounds(wp, variable):
 
 
 def calibration_table_lines(definitions, calibration, precision):
-    """Show configured formulas and retain each coefficient's original eta binning."""
+    """Show configured coefficient clipping while retaining original eta binning."""
     lines = []
     if definitions:
         lines.extend(["## Feature definitions", "",
@@ -159,8 +159,14 @@ def calibration_table_lines(definitions, calibration, precision):
         data = correction["data"]
         edges = tuple(data["edges"]) if isinstance(data, dict) else ()
         values = data["content"] if isinstance(data, dict) else [data]
+        definition = (definitions or {}).get(correction["name"])
+        if isinstance(definition, dict) and definition["expression"].strip() == correction["name"]:
+            for bound, function in (("lower", max), ("upper", min)):
+                if definition.get(bound) is not None:
+                    values = [function(definition[bound], value) for value in values]
         groups.setdefault(edges, {})[correction["name"]] = values
     lines.extend(["## Calibration coefficients", "",
+                  "Configured coefficient lower/upper bounds are already applied to the displayed values. "
                   "Coefficients are evaluated at abs(eta). Tables group only identical eta bins; "
                   "no coefficients are rebinned or interpolated. Binned coefficients use flow=clamp "
                   "outside the tabulated edges. The ID region selections above still apply.", ""])
