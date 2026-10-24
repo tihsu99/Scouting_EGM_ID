@@ -124,7 +124,7 @@ workflow:
         title: ECAL pT correction
         eta_bins: [0, 1.4442, 2.5]
         y_type: contour95
-        x_bins: [10, 200, 40]
+        x_bins: [20, 150, 40]
         fitted_func: y = A1*x + A2
         coefficient: A1
       IH_EA:
@@ -146,7 +146,7 @@ workflow:
         title: HCAL pT correction
         eta_bins: [0, 1.4442, 2.5]
         y_type: contour95
-        x_bins: [10, 200, 40]
+        x_bins: [20, 150, 40]
         fitted_func: y = A1*x + A2
         coefficient: A1
       trackIso_vs_pt:
@@ -160,7 +160,7 @@ workflow:
         title: Track isolation pT diagnostic
         eta_bins: [0, 1.4442, 2.5]
         y_type: contour95
-        x_bins: [10, 100, 40]
+        x_bins: [20, 100, 40]
         fitted_func: y = A1*x + A2
         coefficient: A1
   InspectDistribution:
