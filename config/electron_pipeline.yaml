@@ -112,7 +112,7 @@ workflow:
         y_title: ECAL isolation [GeV]
         title: ECAL pileup correction
         eta_bins: [0, 1.0, 1.4442, 2.0, 2.2, 2.3, 2.4, 2.5]
-        y_type: contour95
+        y_type: mean
         x_bins: [10, 50, 20]
         fitted_func: y = A1*x + A2
         coefficient: A1
@@ -134,7 +134,7 @@ workflow:
         y_title: HCAL isolation [GeV]
         title: HCAL pileup correction
         eta_bins: [0, 1.0, 1.4442, 2.0, 2.2, 2.3, 2.4, 2.5]
-        y_type: contour95
+        y_type: mean
         x_bins: [10, 50, 20]
         fitted_func: y = A1*x + A2
         coefficient: A1
