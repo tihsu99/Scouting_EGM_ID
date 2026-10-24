@@ -222,13 +222,13 @@ workflow:
         WP70:
           missingHits:
             max: 1
-      noIso: *id001
+#      noIso: *id001
     weight_col: training_weight
     isolation_denominator: none
     efficiency_tolerance: 0.03
     regions: [Barrel, Endcap]
     target_efficiencies: [0.7, 0.8, 0.9, 0.95]
-    n_workers: 4
+    n_workers: 2
     n_signal: 300000
     n_background: 300000
     tmva_cycles: 60
