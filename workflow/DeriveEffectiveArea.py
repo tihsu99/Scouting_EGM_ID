@@ -111,7 +111,8 @@ def fit_and_plot(args, plot_style=None):
     txt = [rf"range: {eta_min} < $|\eta|$ < {eta_max}", f"Fit: y = {expr}"]
     for n, v, e in zip(params, popt, perr):
         txt.append(f"{n} = {v:.4g} ± {e:.4g}")
-    ax.text(0.95, 0.05, "\n".join(txt), transform=ax.transAxes,
+    annotation_position = (plot_style or {}).get("fit_annotation_position", [0.95, 0.05])
+    ax.text(*annotation_position, "\n".join(txt), transform=ax.transAxes,
             va="bottom", ha="right", fontsize="small",
             bbox=dict(facecolor="white", edgecolor="none", alpha=0.7))
 
@@ -182,6 +183,9 @@ def DeriveEffectiveAreaAnalysis(**kwargs):
     corrections = []
 
     for var_name, inspect_dict in inspect_variable.items():
+        diagnostic_only = inspect_dict.get("diagnostic_only", False)
+        if not isinstance(diagnostic_only, bool):
+            raise ValueError(f"{var_name}: diagnostic_only must be a boolean")
         x_expr = inspect_dict["x"]
         y_expr = inspect_dict["y"]
         eta_bins = inspect_dict["eta_bins"]
@@ -198,9 +202,10 @@ def DeriveEffectiveAreaAnalysis(**kwargs):
         x_title = inspect_dict["x_title"]
         y_title = inspect_dict["y_title"]
         title = inspect_dict["title"]
-        df_all[var_name] = 0.0
+        if not diagnostic_only:
+            df_all[var_name] = 0.0
 
-        print(f"📊 Fitting {y_expr} vs {x_expr}")
+        print(f"📊 Fitting {y_expr} vs {x_expr}" + (" (diagnostic only; no correction)" if diagnostic_only else ""))
         print(f"η bins: {eta_bins}")
         print(f"Function: {fitted_func_str}")
 
@@ -222,9 +227,19 @@ def DeriveEffectiveAreaAnalysis(**kwargs):
                           df_all.loc[mask, "calibration_weight"].to_numpy(), inspect_dict.get("coefficient", "A1")))
 
         # --- Run parallel fits ---
+        plot_style = dict(kwargs.get("plot_style") or {})
+        plot_style.update(inspect_dict.get("plot_style", {}))
         with ProcessPoolExecutor(max_workers=min(n_workers, len(tasks))) as ex:
             # map preserves eta-bin order even when worker completion order differs.
-            results = list(ex.map(fit_and_plot, tasks, repeat(kwargs.get("plot_style"))))
+            results = list(ex.map(fit_and_plot, tasks, repeat(plot_style)))
+
+        summary_df = pd.DataFrame(results)
+        summary_df["diagnostic_only"] = diagnostic_only
+        summary_csv = os.path.join(plotdir, f"{var_name}_fit_summary.csv")
+        summary_df.to_csv(summary_csv, index=False)
+        print(f"📄 Saved summary: {summary_csv}")
+        if diagnostic_only:
+            continue
 
         # --- Fill df_all with fit results ---
         for res in results:
@@ -251,13 +266,6 @@ def DeriveEffectiveAreaAnalysis(**kwargs):
         )
         rich.print(corr)
         corrections.append(corr)
-
-
-        # --- Summary ---
-        summary_df = pd.DataFrame(results)
-        summary_csv = os.path.join(plotdir, f"{var_name}_fit_summary.csv")
-        summary_df.to_csv(summary_csv, index=False)
-        print(f"📄 Saved summary: {summary_csv}")
     # wrap in CorrectionSet
     corrset = CorrectionSet(schema_version=2, corrections=corrections)
 

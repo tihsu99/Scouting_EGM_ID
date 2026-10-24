@@ -5,11 +5,13 @@ import argparse
 import json
 import math
 from pathlib import Path
+import sys
 import tempfile
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 import yaml
+from tqdm import tqdm
 
 from ntuplizer import safe_token
 
@@ -26,9 +28,12 @@ def merge_sample(sample, jobs, inputdir, target, destination, skip_failed, batch
               "missing_normalization": []}
     event_counts = []
     sources, dataset, provenance, schema, writer = [], None, None, None, None
+    output_stream, path = None, None
+    progress = tqdm(jobs, desc=f"Merge {sample}", unit="file", dynamic_ncols=True)
     try:
-        for job in jobs:
+        for job in progress:
             path = inputdir / sample / Path(job["output_url"]).name
+            progress.set_postfix_str(path.name)
             receipt_path = Path(str(path) + ".json")
             missing = [str(p) for p in (path, receipt_path) if not p.is_file()]
             if missing:
@@ -83,7 +88,9 @@ def merge_sample(sample, jobs, inputdir, target, destination, skip_failed, batch
                     raise ValueError(f"Receipt row count mismatch: {path}")
                 if schema is None:
                     schema = parquet.schema_arrow
-                    writer = pq.ParquetWriter(output, schema, compression="snappy")
+                    # Use explicit Python I/O on mounted storage, as for the input files.
+                    output_stream = output.open("wb")
+                    writer = pq.ParquetWriter(output_stream, schema, compression="snappy")
                 elif not schema.equals(parquet.schema_arrow, check_metadata=False):
                     raise ValueError(f"Incompatible Parquet schema: {path}")
                 rows = 0
@@ -94,9 +101,24 @@ def merge_sample(sample, jobs, inputdir, target, destination, skip_failed, batch
                     raise ValueError(f"Incomplete Parquet read: {path}")
                 report["rows"] += rows
             report["included"].append(path.name)
+    except OSError:
+        print(f"Merge I/O failure: sample={sample}, input={path}, output={output}", file=sys.stderr)
+        raise
     finally:
-        if writer is not None:
-            writer.close()
+        active_error = sys.exc_info()[1]
+        progress.close()
+        close_error = None
+        for resource in (writer, output_stream):
+            if resource is not None:
+                try:
+                    resource.close()
+                except Exception as error:
+                    print(f"Failed closing {output} ({type(resource).__name__}): {error}", file=sys.stderr)
+                    if close_error is None:
+                        close_error = error
+        # Cleanup must not replace the original read/write or receipt-validation failure.
+        if close_error is not None and active_error is None:
+            raise close_error
     if not report["included"]:
         raise ValueError(f"No completed jobs for {sample}; cannot create this sample")
     with output.open("rb") as stream:
@@ -187,11 +209,14 @@ def main():
     parser.add_argument("--samples", nargs="+", help="Subset of enabled production sample keys")
     parser.add_argument("--skip-failed", action="store_true", help="Skip jobs missing Parquet or its receipt")
     parser.add_argument("--batch-size", type=int, default=65536, help="Rows streamed per batch")
+    parser.add_argument("--debug", action="store_true", help="Show the full traceback on failure")
     args = parser.parse_args()
     try:
         merge(args.config, args.inputdir, args.outdir, args.manifests,
               args.samples, args.skip_failed, args.batch_size)
     except (ValueError, OSError, KeyError) as error:
+        if args.debug:
+            raise
         parser.exit(1, f"Error: {error}\n")
 
 

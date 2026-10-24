@@ -1,7 +1,9 @@
 # Standalone electron rederivation; run with postprocess.py.
 # Assign status 5 to failed prompt/tau response before selection, including legacy Parquet.
 # Background combines TT unmatched/nonprompt with failed-response prompt/tau from DY and TT.
-# ECAL/HCAL/track slopes are measured separately, in absolute GeV; ET is represented by reco pt.
+# ECAL/HCAL slopes are measured separately, in absolute GeV; ET is represented by reco pt.
+# Track isolation is optimized directly in GeV without EA/pT correction or clipping.
+# Diagnose raw and relative track isolation versus pT before choosing the training variable.
 # Optimize max(0, ECAL residual) + max(0, HCAL residual), not max(0, their sum).
 # Negative pT slopes are clipped to zero in application and the exported coefficient table.
 # Event-level split and the same prefix cache are shared by calibration and preparation.
@@ -147,26 +149,18 @@ workflow:
         x_bins: [10, 600, 40]
         fitted_func: y = A1*x + A2
         coefficient: A1
-      IT_EA:
-        x: '`ScoutingRho.fixedGridRhoFastjetAll`'
-        y: trackIso
-        x_title: $\rho$ [GeV]
-        y_title: track isolation [GeV]
-        title: track pileup correction
-        eta_bins: [0, 1.0, 1.4442, 2.0, 2.2, 2.3, 2.4, 2.5]
-        y_type: contour95
-        x_bins: [10, 50, 20]
-        fitted_func: y = A1*x + A2
-        coefficient: A1
-      IT_pt:
+      trackIso_vs_pt:
+        diagnostic_only: true
+        plot_style:
+          legend: {loc: upper left}
         x: pt
-        y: trackIso - IT_EA*`ScoutingRho.fixedGridRhoFastjetAll`
+        y: trackIso
         x_title: $p_T$ [GeV]
-        y_title: track isolation after pileup subtraction [GeV]
-        title: track pT correction
+        y_title: Raw track isolation [GeV]
+        title: Track isolation pT diagnostic
         eta_bins: [0, 1.4442, 2.5]
         y_type: contour95
-        x_bins: [10, 600, 40]
+        x_bins: [10, 15, 20, 30, 40, 50, 60, 80, 100, 150, 200, 300, 400, 600]
         fitted_func: y = A1*x + A2
         coefficient: A1
   InspectDistribution:
@@ -183,9 +177,6 @@ workflow:
       IH_pt:
         expression: IH_pt
         lower: 0
-      IT_pt:
-        expression: IT_pt
-        lower: 0
       Esc: pt*cosh(eta)
       hOverE_calibrated: hOverE-(c_rho*`ScoutingRho.fixedGridRhoFastjetAll`+c_E)/Esc
       ecalIso_calibrated:
@@ -193,9 +184,6 @@ workflow:
         lower: 0
       hcalIso_calibrated:
         expression: hcalIso - IH_EA*`ScoutingRho.fixedGridRhoFastjetAll` - IH_pt*pt
-        lower: 0
-      trackIso_calibrated:
-        expression: trackIso - IT_EA*`ScoutingRho.fixedGridRhoFastjetAll` - IT_pt*pt
         lower: 0
       caloIso_calibrated: ecalIso_calibrated + hcalIso_calibrated
       abs_dEtaIn: abs(dEtaIn)
@@ -209,7 +197,7 @@ workflow:
       ecalIso_calibrated: [0, 20, 80]
       hcalIso_calibrated: [0, 20, 80]
       caloIso_calibrated: [0, 40, 80]
-      trackIso_calibrated: [0, 10, 80]
+      trackIso: [0, 10, 80]
       sigmaIetaIeta: [0, 0.05, 50]
       missingHits: [-0.5, 4.5, 5]
       abs_dEtaIn: [0, 0.03, 60]
@@ -277,7 +265,7 @@ workflow:
           min: 0
           direction: less
           binning: [0, 40, 80]
-        trackIso_calibrated:
+        trackIso:
           min: 0
           direction: less
           binning: [0, 10, 80]
@@ -366,7 +354,7 @@ evaluation:
     connect_sources: [Iso]
     input_columns: [sample, weight, pt, eta, phi, status, gen_pt, gen_energy, hOverE, missingHits, dEtaIn, dPhiIn, ooEMOop,
       ecalIso, hcalIso, trackIso, sigmaIetaIeta, ScoutingRho.fixedGridRhoFastjetAll, run, luminosityBlock, event, Generator.weight,
-      IE_pt, IH_pt, IT_pt, Esc, hOverE_calibrated, ecalIso_calibrated, hcalIso_calibrated, trackIso_calibrated, caloIso_calibrated,
+      IE_pt, IH_pt, Esc, hOverE_calibrated, ecalIso_calibrated, hcalIso_calibrated, caloIso_calibrated,
       abs_dEtaIn, abs_dPhiIn, abs_ooEMOop]
     define_variable:
       relecalIso_E: ecalIso/(pt*cosh(eta))
@@ -376,8 +364,8 @@ evaluation:
       caloIso_calibrated:
         label: Corrected ECAL + HCAL isolation [GeV]
         binning: [0, 40, 80]
-      trackIso_calibrated:
-        label: Corrected track isolation [GeV]
+      trackIso:
+        label: Raw track isolation [GeV]
         binning: [0, 10, 80]
       hOverE_calibrated:
         label: Corrected $H/E$
