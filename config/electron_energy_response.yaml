@@ -14,7 +14,7 @@ parquet_weight_column: Generator.weight
 gen_matching_dR: 0.1
 electron_response_max_relative_pt: 0.5
 signal_status: [1, 2, 5]  # Keep failed-response prompt/tau candidates in the diagnostic.
-reco_requirement: pt > 10
+reco_requirement: (pt > 10) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.5666) & (abs(eta) < 2.5)))
 
 # Raw inputs for full electron correctionlib WPs; event scalars are broadcast per candidate.
 cache_columns:

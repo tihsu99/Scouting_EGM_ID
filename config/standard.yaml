@@ -2,22 +2,22 @@ inputdir: /eos/user/t/tihsu/database/EGM_Scouting_ID
 process:
     # Sample lists define the source MC; status selects electrons within each sample.
     signal:
-        requirement: "((status == 1)|(status == 2)) & (pt > 10)"
+        requirement: "((status == 1)|(status == 2)) & (pt > 10) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.566) & (abs(eta) < 2.5)))"
         samples:
             DYToLL_M50: 1.0
     background:
-        requirement: "((status == 0)|(status == 3)) & (pt > 10)"
+        requirement: "((status == 0)|(status == 3)) & (pt > 10) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.566) & (abs(eta) < 2.5)))"
         samples:
             TT: 1.0
             TT_ext1: 1.0
 
 region_definition:
     Barrel:
-        requirement: "(abs(eta) < 1.479)"
+        requirement: "(abs(eta) < 1.4442)"
     Endcap:
-        requirement: "(abs(eta) >= 1.479) & (abs(eta) < 2.5)"
+        requirement: "(abs(eta) > 1.566) & (abs(eta) < 2.5)"
     Barrel+Endcap:
-        requirement: "(abs(eta) < 2.5)"
+        requirement: "(abs(eta) < 1.4442) | ((abs(eta) > 1.566) & (abs(eta) < 2.5))"
 n_files: -1
 random_seed: 42
 
@@ -44,7 +44,7 @@ workflow:
     DeriveEffectiveArea:
         skip: False
         plotdir: /eos/user/t/tihsu/database/EGM_Scouting_ID_analysis/standard/EffectiveArea
-        requirement: "((status == 1)|(status == 2)) & (pt > 10)"
+        requirement: "((status == 1)|(status == 2)) & (pt > 10) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.566) & (abs(eta) < 2.5)))"
         EffectiveArea:
             c_rho:
                 x_title: "$\\rho$"

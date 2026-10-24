@@ -19,14 +19,14 @@ datasets:
   DY:
     label: 'DY prompt or from $\tau$'
     path: "{prepared_dir}/{region}/valid/signal.parquet"
-    requirement: "(sample == 'DYToLL_M50') & ((status == 1) | (status == 2)) & (pt > 10)"
+    requirement: "(sample == 'DYToLL_M50') & ((status == 1) | (status == 2)) & (pt > 10) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.566) & (abs(eta) < 2.5)))"
   TT:
     label: TT unmatched or nonprompt
     path: "{prepared_dir}/{region}/valid/background.parquet"
-    requirement: "(sample == 'TT') & ((status == 0) | (status == 3)) & (pt > 10)"
+    requirement: "(sample == 'TT') & ((status == 0) | (status == 3)) & (pt > 10) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.566) & (abs(eta) < 2.5)))"
   QCD:
     label: QCD unmatched or nonprompt
-    requirement: "((status == 0) | (status == 3)) & (pt > 10)"
+    requirement: "((status == 0) | (status == 3)) & (pt > 10) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.566) & (abs(eta) < 2.5)))"
     samples:
       - QCD_HT_40to70
       - QCD_HT_70to100
@@ -41,7 +41,7 @@ datasets:
       - QCD_HT_2000
   Zprime:
     label: 'Zprime 6 TeV prompt or from $\tau$'
-    requirement: "((status == 1) | (status == 2)) & (pt > 10)"
+    requirement: "((status == 1) | (status == 2)) & (pt > 10) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.566) & (abs(eta) < 2.5)))"
     samples: [ZprimeTo2E_M6000]
 
 comparisons:

@@ -10,8 +10,8 @@ batch_size: 100000
 workers: 4
 progress: true
 max_rows_per_sample: null
-requirement: pt > 15
-selection_label: ScoutingPhoton; $p_T > 15$ GeV; no ID cut
+requirement: (pt > 15) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.5666) & (abs(eta) < 2.5)))
+selection_label: ScoutingPhoton; $p_T > 15$ GeV; no ID cut; ECAL gap excluded
 formats:
 - pdf
 - png

@@ -3,8 +3,8 @@
 # QCD coverage begins at generator pT = 30 GeV, not electron pT = 30 GeV.
 base_config: standard.yaml
 default_wp: ../ref_wp/default_{region}.json
-signal_requirement: ((status == 1) | (status == 2)) & (pt >= 10)
-background_requirement: ((status == 0) | (status == 3)) & (pt >= 10)
+signal_requirement: ((status == 1) | (status == 2)) & (pt >= 10) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.566) & (abs(eta) < 2.5)))
+background_requirement: ((status == 0) | (status == 3)) & (pt >= 10) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.566) & (abs(eta) < 2.5)))
 training_weight_mode: absolute
 calibration_samples:
 - DYToLL_M50

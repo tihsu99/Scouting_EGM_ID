@@ -10,8 +10,8 @@ progress: true
 # null or -1 reads all rows. For a quick check, set e.g. 200000 or use the CLI flag.
 # A cap changes the relative contribution of sample bins within each process.
 max_rows_per_sample: null
-requirement: "pt >= 10"
-selection_label: '$p_T \geq 10$ GeV; all truth categories'
+requirement: "(pt >= 10) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.566) & (abs(eta) < 2.5)))"
+selection_label: '$p_T \geq 10$ GeV; all truth categories; ECAL gap excluded'
 formats: [pdf, png]
 yscales: [linear, log]
 
@@ -58,14 +58,14 @@ process:
 
 region_definition:
   Inclusive:
-    requirement: "abs(eta) < 2.5"
-    label: 'Inclusive, $|\eta| < 2.5$'
+    requirement: "(abs(eta) < 1.4442) | ((abs(eta) > 1.566) & (abs(eta) < 2.5))"
+    label: 'Inclusive, $|\eta| < 2.5$; ECAL gap excluded'
   Barrel:
-    requirement: "abs(eta) < 1.479"
-    label: 'Barrel, $|\eta| < 1.479$'
+    requirement: "abs(eta) < 1.4442"
+    label: 'Barrel, $|\eta| < 1.4442$'
   Endcap:
-    requirement: "(abs(eta) >= 1.479) & (abs(eta) < 2.5)"
-    label: 'Endcap, $1.479 \leq |\eta| < 2.5$'
+    requirement: "(abs(eta) > 1.566) & (abs(eta) < 2.5)"
+    label: 'Endcap, $1.566 < |\eta| < 2.5$'
 
 # Match the active ID convention: isolation divided by E = pt*cosh(eta).
 # These are raw observables, before effective-area or energy corrections.

@@ -7,8 +7,8 @@ histogram_normalization: yield_density
 plot_kind: stacked
 max_rows_per_sample: null
 define_variable: {}
-requirement: pt > 10
-selection_label: 'ScoutingPhoton; $p_T > 10$ GeV; XSDB LO weights (Summer24 reference)'
+requirement: (pt > 10) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.5666) & (abs(eta) < 2.5)))
+selection_label: 'ScoutingPhoton; $p_T > 10$ GeV; ECAL gap excluded; XSDB LO weights (Summer24 reference)'
 total:
   label: All GJ bins
   color: '#111111'

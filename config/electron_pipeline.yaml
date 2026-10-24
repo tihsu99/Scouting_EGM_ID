@@ -11,8 +11,9 @@
 # Old calibration/prepared tables are incompatible: use a new output directory and rederive.
 steps: [calibrate, prepare, train, validate]
 default_wp: null
-signal_requirement: ((status == 1) | (status == 2)) & (pt > 10)
-background_requirement: (pt > 10) & (((sample == 'TT') & ((status == 0) | (status == 3))) | (status == 5))
+# Apply the fiducial selection before every calibration fit and before preparation.
+signal_requirement: ((status == 1) | (status == 2)) & (pt > 10) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.566) & (abs(eta) < 2.5)))
+background_requirement: (pt > 10) & (((sample == 'TT') & ((status == 0) | (status == 3))) | (status == 5)) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.566) & (abs(eta) < 2.5)))
 training_weight_mode: absolute
 normalization: {}
 calibration_samples: [DYToLL_M50]
@@ -337,15 +338,15 @@ evaluation:
     DY:
       label: DY prompt/direct-tau; relative pT difference < 0.5
       path: '{prepared_dir}/{region}/valid/signal.parquet'
-      requirement: ((status == 1) | (status == 2)) & (pt > 10)
+      requirement: ((status == 1) | (status == 2)) & (pt > 10) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.566) & (abs(eta) < 2.5)))
     TT:
       label: TT unmatched/nonprompt + failed-response prompt/tau
       path: '{prepared_dir}/{region}/valid/background.parquet'
-      requirement: sample == 'TT'
+      requirement: (sample == 'TT') & ((abs(eta) < 1.4442) | ((abs(eta) > 1.566) & (abs(eta) < 2.5)))
     DYResponseFail:
       label: DY prompt/tau failing relative pT matching
       path: '{prepared_dir}/{region}/valid/background.parquet'
-      requirement: sample == 'DYToLL_M50'
+      requirement: (sample == 'DYToLL_M50') & ((abs(eta) < 1.4442) | ((abs(eta) > 1.566) & (abs(eta) < 2.5)))
   comparisons:
     DY:
       signal: DY

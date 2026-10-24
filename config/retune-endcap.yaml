@@ -2,11 +2,11 @@ inputdir: /eos/user/t/tihsu/dataset/scouting_id/id_parquet_v1_merged
 process:
     # Sample lists define the source MC; status selects electrons within each sample.
     signal:
-        requirement: "((status == 1)|(status == 2)) & (pt > 10)"
+        requirement: "((status == 1)|(status == 2)) & (pt > 10) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.566) & (abs(eta) < 2.5)))"
         samples:
             DYToLL_M50: 1.0
     background:
-        requirement: "((status == 0)|(status == 3)) & (pt > 10)"
+        requirement: "((status == 0)|(status == 3)) & (pt > 10) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.566) & (abs(eta) < 2.5)))"
         samples:
             TT: 1.0
 

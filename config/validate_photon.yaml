@@ -10,15 +10,15 @@ datasets:
   GJet:
     label: GJet photons (status 1)
     path: '{prepared_dir}/{region}/valid/signal.parquet'
-    requirement: (status == 1) & (pt > 15)
+    requirement: (status == 1) & (pt > 15) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.5666) & (abs(eta) < 2.5)))
   QCD:
     label: QCD photon candidates (status 0,3)
     path: '{prepared_dir}/{region}/valid/background.parquet'
-    requirement: ((status == 0) | (status == 3)) & (pt > 15)
+    requirement: ((status == 0) | (status == 3)) & (pt > 15) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.5666) & (abs(eta) < 2.5)))
   TT:
     label: TT photon candidates (status 0,3)
     samples: [TT]
-    requirement: ((status == 0) | (status == 3)) & (pt > 15)
+    requirement: ((status == 0) | (status == 3)) & (pt > 15) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.5666) & (abs(eta) < 2.5)))
 comparisons:
   GJet:
     signal: GJet
