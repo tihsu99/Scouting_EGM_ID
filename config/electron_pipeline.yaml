@@ -94,13 +94,12 @@ workflow:
         title: $c_E$
         x: (pt*cosh(eta))
         y: hOverE-(c_rho*`ScoutingRho.fixedGridRhoFastjetAll`/(pt*cosh(eta)))
-        eta_bins: [0, 1.0, 1.4442, 1.566, 2.0, 2.5]
+        eta_bins: [0, 1.0, 1.4442, 2.0, 2.5]
         y_type: contour90
         x_bins: [10, 500, 50]
         x_bins_by_eta:
         - [30, 500, 50]
         - [50, 500, 50]
-        - [100, 500, 50]
         - [50, 500, 50]
 #        - [150, 500, 50]
 #        - [150, 500, 50]
