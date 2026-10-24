@@ -105,16 +105,13 @@ def fit_and_plot(args, plot_style=None):
 
     ax.set_xlabel(x_title)
     ax.set_ylabel(y_title)
-    add_legend(ax, plot_style)
 
-    # Annotate fit
+    # Let one legend lay out the fit details and entries together at any configured location.
     txt = [rf"range: {eta_min} < $|\eta|$ < {eta_max}", f"Fit: y = {expr}"]
     for n, v, e in zip(params, popt, perr):
         txt.append(f"{n} = {v:.4g} ± {e:.4g}")
-    annotation_position = (plot_style or {}).get("fit_annotation_position", [0.95, 0.05])
-    ax.text(*annotation_position, "\n".join(txt), transform=ax.transAxes,
-            va="bottom", ha="right", fontsize="small",
-            bbox=dict(facecolor="white", edgecolor="none", alpha=0.7))
+    legend = add_legend(ax, plot_style, title="\n".join(txt))
+    legend.get_title().set_multialignment("left")
 
     os.makedirs(os.path.join(plotdir, f"{var_name}"), exist_ok=True)
     outfile = os.path.join(plotdir, f"{var_name}", f"EffArea_eta_{eta_min}_{eta_max}.png")
@@ -214,13 +211,17 @@ def DeriveEffectiveAreaAnalysis(**kwargs):
         df_all[f"{var_name}_yval"] = df_all.eval(y_expr)
         if "eta" not in df_all.columns:
             raise KeyError("Column 'eta' not found in data!")
+        fit_requirement = inspect_dict.get("requirement")
+        fit_mask = df_all.eval(fit_requirement) if fit_requirement else True
+        if fit_requirement:
+            print(f"Fit selection: {fit_requirement}")
 
         # --- Build tasks per η-bin ---
         tasks = []
         for i in range(len(eta_bins) - 1):
             eta_min, eta_max = eta_bins[i], eta_bins[i + 1]
             x_bins = x_bins_by_eta[i]
-            mask = (abs(df_all["eta"]) >= eta_min) & (abs(df_all["eta"]) < eta_max)
+            mask = fit_mask & (abs(df_all["eta"]) >= eta_min) & (abs(df_all["eta"]) < eta_max)
             x_sel = df_all.loc[mask, f"{var_name}_xval"].to_numpy()
             y_sel = df_all.loc[mask, f"{var_name}_yval"].to_numpy()
             tasks.append((eta_min, eta_max, x_sel, y_sel, x_expr, y_expr, plotdir, fitted_func_str, var_name, y_type, x_bins, x_title, y_title, title,
@@ -235,13 +236,14 @@ def DeriveEffectiveAreaAnalysis(**kwargs):
 
         summary_df = pd.DataFrame(results)
         summary_df["diagnostic_only"] = diagnostic_only
+        summary_df["requirement"] = fit_requirement or ""
         summary_csv = os.path.join(plotdir, f"{var_name}_fit_summary.csv")
         summary_df.to_csv(summary_csv, index=False)
         print(f"📄 Saved summary: {summary_csv}")
         if diagnostic_only:
             continue
 
-        # --- Fill df_all with fit results ---
+        # Fill every row in the eta bin, including rows excluded from this fit.
         for res in results:
             eta_min, eta_max = res["eta_min"], res["eta_max"]
             mask = (abs(df_all["eta"]) >= eta_min) & (abs(df_all["eta"]) < eta_max)
