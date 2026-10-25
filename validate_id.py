@@ -10,7 +10,7 @@ import yaml
 from workflow.InspectDistribution import InspectDistributionAnalysis
 from workflow.ValidateID import ValidateIDAnalysis
 from workflow.working_points import configured_wp_sources, load_id_config
-from workflow.reference_ids import load_reference_recipes
+from workflow.reference_ids import load_reference_recipes, load_correctionlib_references
 
 
 def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=None,
@@ -28,6 +28,9 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
     artifacts = {"correction_lib": correction_lib}
     for source, item in load_reference_recipes(cfg.get("validation", {}).get("reference_sources"), config_path.parent).items():
         artifacts[f"reference/{source}"] = item["path"]
+    for source, item in load_correctionlib_references(
+            cfg.get("validation", {}).get("correctionlib_references"), config_path.parent).items():
+        artifacts[f"correctionlib_reference/{source}"] = item["metadata"]["path"]
     if id_correctionlib:
         artifacts["id_correctionlib"] = str(Path(id_correctionlib).resolve())
     for source, options in sources.items():
@@ -102,6 +105,7 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
             for key in ("roc_outputdir", "roc_filename_prefix"):
                 if key in plot_style:
                     plot_style[key] = plot_style[key].format(comparison=name, **paths)
+            validation = dict(cfg["validation"], **comparison.get("validation", {}))
             ValidateIDAnalysis(inputdir=paths["prepared_dir"], outputdir=str(output / name),
                                config_dir=str(config_path.parent),
                                datasets=selected, regions=regions, wp_sources=sources,
@@ -109,7 +113,7 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
                                plot_style=plot_style,
                                id_requirement=cfg.get("correctionlib", {}).get("requirement"),
                                id_correctionlib=artifacts.get("id_correctionlib"),
-                               label=comparison.get("label", name), **cfg["validation"])
+                               label=comparison.get("label", name), **validation)
     return str(output)
 
 

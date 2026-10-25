@@ -1,5 +1,6 @@
 import os
 import json
+from collections.abc import Mapping
 from typing import Dict, List, Tuple, Optional, Iterable
 
 import numpy as np
@@ -16,7 +17,8 @@ from workflow.working_points import WP, load_tmva_wp_file, load_configured_wps, 
 from workflow.InspectDistribution import define_variables
 from workflow.plotting import (add_legend, configure_style, save_plot, series_panels, composition_panel,
                                resolve_plot_style, wp_color_indices, wp_marker_style)
-from workflow.reference_ids import load_reference_recipes, add_reference_features
+from workflow.reference_ids import (load_reference_recipes, add_reference_features,
+                                    load_correctionlib_references, add_correctionlib_reference)
 from workflow.cut_plots import plot_cut_distribution
 
 def lighten_color(color, amount=0.3):
@@ -708,6 +710,17 @@ def ValidateIDAnalysis(**kwargs):
     outdir = kwargs.pop("outputdir", os.path.join(inputdir, "validation_plots"))
     wp_sources_cfg = kwargs.pop("wp_sources", None)
     references = load_reference_recipes(kwargs.get("reference_sources"), kwargs.get("config_dir", "."))
+    correctionlib_references = load_correctionlib_references(
+        kwargs.get("correctionlib_references"), kwargs.get("config_dir", "."))
+    if set(references) & set(correctionlib_references):
+        raise ValueError("Mapped and correctionlib reference source names must differ")
+    roc_reweight = kwargs.get("roc_reweight")
+    reweightings = ([roc_reweight] if isinstance(roc_reweight, Mapping) else roc_reweight) or []
+    if not isinstance(reweightings, (list, tuple)) or any(not isinstance(rule, Mapping) for rule in reweightings):
+        raise ValueError("roc_reweight must be a mapping or a list of mappings")
+    reweighted_sources = [rule["source"] for rule in reweightings]
+    if len(set(reweighted_sources)) != len(reweighted_sources):
+        raise ValueError("Each ROC source may be reweighted only once")
 
     id_corrections = None
     if kwargs.get("id_correctionlib"):
@@ -759,7 +772,7 @@ def ValidateIDAnalysis(**kwargs):
             console.print(f"  [cyan]Source {src_name}[/cyan]: loading WPs from {path}")
             options = (wp_sources_cfg or {}).get(src_name, {})
             wp_sources[src_name] = load_configured_wps(path, {} if isinstance(options, str) else options)
-        if set(references) & set(wp_sources):
+        if (set(references) | set(correctionlib_references)) & set(wp_sources):
             raise ValueError("Reference source names must differ from trained WP source names")
 
         if id_corrections is not None:
@@ -777,7 +790,8 @@ def ValidateIDAnalysis(**kwargs):
         if columns is not None:
             extra = {var for wps in wp_sources.values() for wp in wps for var in wp.meta.get("fixed_cuts", {})}
             extra.update(column for item in references.values() for column in item["recipe"]["input_columns"])
-            extra.update((kwargs.get("roc_reweight") or {}).get("binning", {}))
+            extra.update(column for item in correctionlib_references.values() for column in item["metadata"]["input_columns"])
+            extra.update(column for rule in reweightings for column in rule["binning"])
             extra.update(set(kwargs.get("cut_distributions", {})) - set(kwargs.get("define_variable", {})))
             composition = (kwargs.get("plot_style") or {}).get("composition", {})
             if composition.get("enabled", False):
@@ -815,25 +829,30 @@ def ValidateIDAnalysis(**kwargs):
         reg_out = os.path.join(outdir, region)
         os.makedirs(reg_out, exist_ok=True)
 
-        roc_reweight = kwargs.get("roc_reweight")
-        if roc_reweight:
-            source, target = roc_reweight["source"], roc_reweight["target"]
+        reweight_reports = []
+        if reweightings:
+            df["__roc_weight"] = df["weight"]
+        for rule in reweightings:
+            source, target = rule["source"], rule["target"]
             if not datasets or source == target or any(name not in datasets for name in (source, target)):
                 raise ValueError("ROC reweighting requires distinct named source and target samples")
             source_mask = df.process == source
-            columns = list(dict.fromkeys([*roc_reweight["binning"], "weight"]))
+            columns = list(dict.fromkeys([*rule["binning"], "weight"]))
             weights, report = kinematic_weights(df.loc[source_mask, columns], df.loc[df.process == target, columns],
-                                                roc_reweight["binning"])
-            df["__roc_weight"] = df["weight"]
+                                                rule["binning"])
             df.loc[source_mask, "__roc_weight"] = weights
             report.update(source=source, target=target, region=region, scope="ROC only; before ID cuts",
                           base_weights="unit" if kwargs.get("unit_weights", False) else "weight",
                           uncertainty="Efficiency errors condition on the fitted weight map")
-            with open(os.path.join(reg_out, "roc_reweighting.json"), "w") as handle:
-                json.dump(report, handle, indent=2)
+            reweight_reports.append(report)
             if report["target_weight_without_source_support"] > 0 or report["target_weight_outside_range"] > 0:
                 console.print(f"[yellow]{region}: incomplete {source}/{target} kinematic support; "
                               "see roc_reweighting.json[/yellow]")
+        if reweight_reports:
+            report = reweight_reports[0] if isinstance(roc_reweight, Mapping) else dict(
+                region=region, scope="ROC only; before ID cuts", reweightings=reweight_reports)
+            with open(os.path.join(reg_out, "roc_reweighting.json"), "w") as handle:
+                json.dump(report, handle, indent=2)
 
         if id_corrections is not None:
             reference = ValidationAnalyzer(df, wp_sources, plot_style=kwargs.get("plot_style"))
@@ -861,16 +880,20 @@ def ValidateIDAnalysis(**kwargs):
         # References are validation-only; an existing exported online ID stays usable.
         for source, item in references.items():
             wp_sources[source] = add_reference_features(df, source, item["recipe"], region)
+        for source, item in correctionlib_references.items():
+            wp_sources[source] = add_correctionlib_reference(df, source, item)
         print_id_table({region: wp_sources}, os.path.join(reg_out, "cutbased_id.md"), kwargs.get("id_requirement", requirement),
                        kwargs.get("region_definition"))
-        if references:
+        if references or correctionlib_references:
             with open(os.path.join(reg_out, "reference_ids.json"), "w") as handle:
                 json.dump(dict(region=region, denominator="same selected candidates and weights as online IDs",
-                               references=references), handle, indent=2, allow_nan=False)
+                               references=references,
+                               correctionlib_references={source: item["metadata"] for source, item in correctionlib_references.items()}),
+                          handle, indent=2, allow_nan=False)
 
         options = dict(processes=datasets, connect_sources=kwargs.get("connect_sources", ()),
                        dedicated_wps=kwargs.get("dedicated_wps", False), regions=[region],
-                       roc_weight_col="__roc_weight" if roc_reweight else None,
+                       roc_weight_col="__roc_weight" if reweightings else None,
                        plot_style=kwargs.get("plot_style"))
 
         # --- Build analyzer ---

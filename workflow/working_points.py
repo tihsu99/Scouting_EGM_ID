@@ -82,7 +82,27 @@ def load_id_config(path):
     config = yaml.safe_load(path.read_text())
     if "base_config" in config:
         base_path = (path.parent / config["base_config"]).resolve()
-        return config, yaml.safe_load(base_path.read_text()), base_path
+        specification = yaml.safe_load(base_path.read_text())
+        if "evaluation" in specification:
+            evaluation, base, _ = load_id_config(base_path)
+            for source, options in evaluation.get("wp_sources", {}).items():
+                if isinstance(options, str):
+                    evaluation["wp_sources"][source] = options.replace("{config_dir}", str(base_path.parent))
+                else:
+                    options["path"] = options["path"].replace("{config_dir}", str(base_path.parent))
+            for source, template in evaluation.get("validation", {}).get("reference_sources", {}).items():
+                evaluation["validation"]["reference_sources"][source] = template.replace("{config_dir}", str(base_path.parent))
+            for options in evaluation.get("validation", {}).get("correctionlib_references", {}).values():
+                options["path"] = options["path"].replace("{config_dir}", str(base_path.parent))
+            # Profiles inherit the pipeline's physics definitions; explicit empty
+            # reference dictionaries replace inherited references.
+            for key, value in config.items():
+                if key in ("validation", "plot_style"):
+                    evaluation[key] = dict(evaluation.get(key, {}), **value)
+                elif key != "base_config":
+                    evaluation[key] = value
+            return evaluation, base, base_path
+        return config, specification, base_path
     if "workflow" not in config or "evaluation" not in config:
         raise ValueError("ID configuration needs base_config or an inline workflow with evaluation")
     base = deepcopy(config.get("shared", {}))
@@ -267,11 +287,14 @@ def print_id_table(wps_by_region, output=None, requirement=None, region_definiti
         for source, wps in sources.items():
             lines.extend([f"### {source}", ""])
             if wps and wps[0].meta.get("reference_kind"):
-                lines.extend([wps[0].meta["reference_kind"] + ". Formulas, mappings and source hashes: `reference_ids.json`.", ""])
-                lines.extend(["- " + note for note in wps[0].meta["reference_limitations"]])
+                lines.extend([wps[0].meta["reference_kind"] + ". Definitions and source hashes: `reference_ids.json`.", ""])
+                lines.extend(["- " + note for note in wps[0].meta.get("reference_limitations", [])])
                 lines.append("")
             lines.extend(["| Variable | " + " | ".join(wp.meta.get("label", wp.name) for wp in wps) + " |",
                           "|---|" + "---|" * len(wps)])
+            if any(wp.meta.get("reference_evaluator") for wp in wps):
+                lines.append("| Stored evaluator | " + " | ".join(
+                    "`" + wp.meta.get("reference_evaluator", "") + "`" for wp in wps) + " |")
             variables = dict.fromkeys(variable for wp in wps
                                       for variable in [*wp.window_cuts, *wp.meta.get("fixed_cuts", {})])
             for variable in variables:
@@ -282,7 +305,8 @@ def print_id_table(wps_by_region, output=None, requirement=None, region_definiti
                 lines.append(f"| `{variable}` | " + " | ".join(entries) + " |")
             lines.append("")
     lines.extend(calibration_table_lines(definitions, calibration, precision))
-    lines.extend(["All cuts in a column are applied together, after the configured feature calibration.",
+    lines.extend(["All cuts in a column are applied together, after that ID's configured feature calibration. "
+                  "Stored correctionlib evaluators run directly on raw inputs.",
                   "Fixed cuts use inclusive bounds. Optimized WP names denote nominal optimization targets; "
                   "reference names retain their source definitions. Efficiencies after all cuts must be measured.",
                   f"Numbers are displayed to {precision} significant digits; JSON retains the exact thresholds and coefficients.", ""])

@@ -170,7 +170,7 @@ workflow:
   InspectDistribution:
     regions: [Barrel, Endcap]
     kinematic_reweighting: BACKGROUND
-    reweight_binning:
+    reweight_binning: &electron_kinematic_binning
       pt: [10, 15, 20, 30, 40, 60, 80, 120, 200, 300, 500, 700, 1000, 2000, 5000, 10000]
       eta: [-2.5, -2.0, -1.566, -1.4442, -1.0, -0.5, 0.0, 0.5, 1.0, 1.4442, 1.566, 2.0, 2.5]
     stitch_binning: null
@@ -320,6 +320,10 @@ workflow:
     connect_sources: [Optimized(Iso), Optimized(noIso)]
     label: DY well-reconstructed prompt/direct-tau vs TT background (status 0,3,5)
 evaluation:
+  preparation:
+    progress: true
+    max_rows_per_sample: 2000000
+    batch_size: 200000
   correctionlib:
     version: 1
     requirement: pt > 10
@@ -345,13 +349,47 @@ evaluation:
       label: TT unmatched/nonprompt + failed-response prompt/tau
       path: '{prepared_dir}/{region}/valid/background.parquet'
       requirement: *electron_background_requirement
+    QCD:
+      label: QCD unmatched/nonprompt
+      requirement: ((status == 0) | (status == 3)) & (pt > 10) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.566) & (abs(eta) < 2.5)))
+      samples:
+        - QCD_HT_40to70
+        - QCD_HT_70to100
+        - QCD_HT_100to200
+        - QCD_HT_200to400
+        - QCD_HT_400to600
+        - QCD_HT_600to800
+        - QCD_HT_800to1000
+        - QCD_HT_1000to1200
+        - QCD_HT_1200to1500
+        - QCD_HT_1500to2000
+        - QCD_HT_2000
+    Zprime:
+      label: Zprime 6 TeV prompt/direct-tau; relative pT difference < 0.5
+      requirement: ((status == 1) | (status == 2)) & (pt > 10) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.566) & (abs(eta) < 2.5)))
+      samples: [ZprimeTo2E_M6000]
   comparisons:
     DY:
       signal: DY
-      backgrounds: [TT]
-      label: 'DY signal: status 1,2; TT background: status 0,3,5'
+      backgrounds: [TT, QCD]
+      label: 'DY signal: status 1,2; TT: status 0,3,5; QCD: status 0,3'
+      validation:
+        roc_reweight:
+          - source: DY
+            target: TT
+            binning: *electron_kinematic_binning
+          - &qcd_roc_reweight
+            source: QCD
+            target: TT
+            binning: *electron_kinematic_binning
+    Zprime:
+      signal: Zprime
+      backgrounds: [TT, QCD]
+      label: 'Zprime 6 TeV signal: status 1,2; TT: status 0,3,5; QCD: status 0,3'
   validation:
     connect_sources: [Iso]
+    # DY also matches TT in its comparison above. Keep the Zprime signal spectrum.
+    roc_reweight: *qcd_roc_reweight
     input_columns: [sample, weight, pt, eta, phi, status, gen_pt, gen_energy, hOverE, missingHits, dEtaIn, dPhiIn, ooEMOop,
       ecalIso, hcalIso, trackIso, sigmaIetaIeta, ScoutingRho.fixedGridRhoFastjetAll, run, luminosityBlock, event, Generator.weight,
       IE_pt, IH_pt, Esc, hOverE_calibrated, ecalIso_calibrated, hcalIso_calibrated, caloIso_calibrated,
@@ -455,7 +493,9 @@ evaluation:
     roc_filename_prefix: '{comparison}_'
     process_palettes:
       TT: ['#0072B2', '#56B4E9', '#3B4CC0', '#009E73', '#111111', '#606060']
+      QCD: ['#D55E00', '#E69F00', '#CC6677', '#AA3377', '#808080', '#B0B0B0']
       DY: ['#0072B2', '#56B4E9', '#3B4CC0', '#009E73', '#111111', '#707070']
+      Zprime: ['#0072B2', '#56B4E9', '#3B4CC0', '#009E73', '#111111', '#707070']
     cms_label:
       com: 13.6
 high_pt:

@@ -6,7 +6,51 @@ import numpy as np
 import yaml
 
 from workflow.InspectDistribution import define_variables
-from workflow.working_points import working_points_from_spec
+from workflow.working_points import WP, working_points_from_spec
+
+
+def load_correctionlib_references(sources, config_dir="."):
+    """Load independent raw-input ID evaluators, without applying current calibration."""
+    import correctionlib
+    from apply_id import id_evaluators, id_inputs
+
+    references = {}
+    for source, options in (sources or {}).items():
+        path = Path(options["path"].format(config_dir=config_dir)).resolve()
+        corrections = correctionlib.CorrectionSet.from_file(str(path))
+        evaluators = id_evaluators(corrections)
+        prefix = options.get("prefix", "")
+        selected = {name[len(prefix):]: name for name in sorted(evaluators) if name.startswith(prefix)}
+        if not selected or any(not name for name in selected):
+            raise ValueError(f"No ID working points with prefix {prefix!r} in {path}; available: {list(evaluators)}")
+        references[source] = dict(
+            corrections=corrections,
+            metadata=dict(path=str(path), sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+                          working_points=selected, labels=options.get("labels", {}),
+                          input_columns=sorted({item.name for name in selected.values()
+                                                for item in id_inputs(evaluators[name])}),
+                          evaluation="raw inputs with the reference artifact's own calibration"))
+    return references
+
+
+def add_correctionlib_reference(frame, source, reference):
+    from apply_id import evaluate_id
+
+    metadata = reference["metadata"]
+    missing = set(metadata["input_columns"]) - set(frame.columns)
+    if missing:
+        raise ValueError(f"Missing inputs for reference {source}: {sorted(missing)}")
+    wps = []
+    for index, (name, evaluator) in enumerate(metadata["working_points"].items()):
+        column = f"__reference_pass_{source}_{index}"
+        if column in frame:
+            raise ValueError(f"Reference {source} would overwrite column {column}")
+        frame[column] = evaluate_id(reference["corrections"], evaluator, frame)
+        wps.append(WP(name, {}, dict(pass_column=column, fixed_cuts={},
+                                    label=metadata["labels"].get(name, name),
+                                    reference_evaluator=evaluator,
+                                    reference_kind="independent correctionlib ID")))
+    return wps
 
 
 def load_reference_recipes(sources, config_dir="."):
