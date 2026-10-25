@@ -343,6 +343,27 @@ The workflow implements:
   with its source hash. Raw E-normalized isolation and strict thresholds are
   reevaluated alongside newly optimized IDs. The EB/EE boundary is 1.479.
 
+`config/electron_pipeline.yaml` and `config/validate_isolated.yaml` also enable
+the validation-only `OfflineMapped` reference. Its CMSSW RunIIIWinter22 V1 cuts,
+effective areas, source revision, input mapping and limitations are recorded in
+`ref_wp/offline_electron_winter22.yaml`. The supplied DPNote mapping is
+ECAL to photon isolation, HCAL to hadron isolation, and track to charged isolation:
+`relIso = (trackIso + max(0, ecalIso + hcalIso - rho*EA))/pt`.
+The cuts include `relIso < C0 + Cpt/pt`, `H/E < C0 + CE/E + Cr*rho/E`,
+shower shape, track matching, inverse-energy/momentum and inclusive missing hits.
+Conversion veto is omitted; the YAML records the remaining reconstruction approximations.
+
+Run `validate_id.py` with the same completed calibration, training and prepared
+directories and `--steps plot --outputdir <new-directory>` to add the reference
+without redoing preparation or training. Existing `--id-correctionlib` exports
+remain usable; mapped references are evaluated separately on the same selected
+candidates and weights. Each region writes `reference_ids.json` with formulas and
+source hashes. To disable these points, set `validation.reference_sources: {}`
+(or `evaluation.validation.reference_sources: {}` in the standalone pipeline).
+Hollow circles reuse the online colors for Tight/WP70, Medium/WP80, Loose/WP90
+and Veto/WP95. This pairing is visual; compare measured signal efficiency and
+background efficiency in the ROC CSV, including the pT slices.
+
 Output layout under the selected output directory:
 
 | Path | Content |

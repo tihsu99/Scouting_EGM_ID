@@ -5,7 +5,7 @@ import numpy as np
 
 from workflow.data import edges, efficiency_stats
 from workflow.working_points import cut_bounds
-from workflow.plotting import resolve_plot_style
+from workflow.plotting import resolve_plot_style, wp_color_indices, wp_marker_style
 
 
 def plot_cut_distribution(samples, variable, specification, wp_sources, region, plot_style=None):
@@ -60,17 +60,19 @@ def plot_cut_distribution(samples, variable, specification, wp_sources, region, 
             bin_sumw2=sumw2.tolist(), density=density.tolist())
 
     pairs = [(source, wp) for source, wps in wp_sources.items() for wp in wps]
+    indices = wp_color_indices(wp_sources, style)
     for index, (source, wp) in enumerate(pairs):
         bounds = cut_bounds(wp, variable)
         if not bounds:
             continue
-        color = palette[index % len(palette)]
+        color = palette[indices[source, wp.name] % len(palette)]
         marker = markers.get(source, "o")
         label = style.get("wp_label_format", "{source} {label}").format(
             source=source, name=wp.name, label=wp.meta.get("label", wp.name))
         description = " and ".join(f"{operator} {value:.6g}" for operator, value in bounds)
         outside = any(not bins[0] <= value <= bins[-1] for _, value in bounds)
         handles.append(Line2D([], [], color=color, marker=marker, markersize=4, **cut_line_style,
+                              **wp_marker_style(source, color, style),
                               label=f"{label}: {description}" + (" (outside range)" if outside else "")))
         for _, value in bounds:
             if bins[0] <= value <= bins[-1]:

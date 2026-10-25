@@ -45,6 +45,11 @@ shared:
     formats: [pdf, png]
     wp_label_format: '{label}'
     wp_palette: ['#0072B2', '#56B4E9', '#3B4CC0', '#009E73', '#CC79A7', '#D55E00']
+    source_markers: {Optimized(Iso): o, OfflineMapped: o}
+    source_fillstyles: {OfflineMapped: none}
+    # Visual pairing only: the mapped WPs do not imply these signal efficiencies.
+    wp_color_indices:
+      OfflineMapped: {Tight: 0, Medium: 1, Loose: 2, Veto: 3}
     cut_distributions:
       samples:
         DY:
@@ -53,7 +58,7 @@ shared:
         TT:
           label: $t\bar{t}$
           color: '#007F8B'
-    max_series_per_panel: 8
+    max_series_per_panel: 24
     rc_params:
       figure.figsize: [10, 8]
       font.size: 22
@@ -289,6 +294,8 @@ workflow:
           binning: [0, 0.2, 20]
     bound_quantiles: [0.001, 0.99]
   ValidateID:
+    reference_sources:
+      OfflineMapped: '{config_dir}/../ref_wp/offline_electron_winter22.yaml'
     dedicated_wps: true
     allow_empty_slices: true
     pt_regions:
@@ -395,6 +402,10 @@ evaluation:
         binning: [0, 0.2, 80]
   plot_style:
     preset: id_comparison
+    legend:
+      loc: upper center
+      bbox_to_anchor: [0.5, -0.15]
+      ncol: 3
     cut_distributions:
       samples:
         DY:
@@ -436,6 +447,10 @@ evaluation:
     source_markers:
       Iso: o
       Default: s
+      OfflineMapped: o
+    source_fillstyles: {OfflineMapped: none}
+    wp_color_indices:
+      OfflineMapped: {Tight: 0, Medium: 1, Loose: 2, Veto: 3}
     roc_outputdir: '{outputdir}/ROC'
     roc_filename_prefix: '{comparison}_'
     process_palettes:

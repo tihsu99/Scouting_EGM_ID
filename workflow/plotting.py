@@ -66,6 +66,28 @@ def configure_style(plot_style=None):
     plt.rcParams.update(settings.get("rc_params", {}))
 
 
+def wp_color_indices(wp_sources, style):
+    """Explicit indices let a mapped reference share its corresponding online WP color."""
+    configured = style.get("wp_color_indices", {})
+    indices, next_index = {}, 0
+    for source, wps in wp_sources.items():
+        for wp in wps:
+            index = configured.get(source, {}).get(wp.name)
+            if index is None:
+                index = next_index
+                next_index += 1
+            if not isinstance(index, int) or index < 0:
+                raise ValueError(f"Invalid WP color index for {source}/{wp.name}: {index}")
+            indices[source, wp.name] = index
+    return indices
+
+
+def wp_marker_style(source, color, style):
+    fill = style.get("source_fillstyles", {}).get(source, "full")
+    return dict(fillstyle=fill, markerfacecolor="none" if fill == "none" else color,
+                markeredgecolor=color)
+
+
 def add_legend(ax, plot_style=None, **kwargs):
     options = dict(loc="lower right", frameon=False, borderaxespad=1.5)
     options.update(kwargs)

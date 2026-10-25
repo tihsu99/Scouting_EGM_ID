@@ -1,0 +1,203 @@
+# Offline Run 3 Winter22 V1 thresholds mapped onto raw scouting observables.
+# H/E < C0 + CE/E + Cr*rho/E; relIso < C0 + Cpt/pt.
+# All continuous cuts are strict; missingHits is inclusive. No retuned calibration is reused.
+kind: CMSSW offline cuts mapped to scouting electrons; not an offline VID decision
+provenance:
+  mapping_basis: User-specified DPNote convention; ECAL to photon, HCAL to hadron, track to charged isolation.
+  cmssw_release: CMSSW_15_1_0_pre3
+  cmssw_commit: e04f43ec27fbf28a73d59caff99a5df70d9b3cef
+  id: cutBasedElectronID-RunIIIWinter22-V1
+  working_points:
+    url: https://github.com/cms-sw/cmssw/blob/e04f43ec27fbf28a73d59caff99a5df70d9b3cef/RecoEgamma/ElectronIdentification/python/Identification/cutBasedElectronID_Winter22_122X_V1_cff.py
+    blob_sha: 798ff21ae2926df5da66949a85195a3c0143ba86
+  effective_areas:
+    url: https://github.com/cms-sw/cmssw/blob/e04f43ec27fbf28a73d59caff99a5df70d9b3cef/RecoEgamma/ElectronIdentification/data/Run3_Winter22/effAreaElectrons_cone03_pfNeuHadronsAndPhotons_122X.txt
+    blob_sha: 961a90bcf59f2231bcb6b50d703be02625d18775
+  cut_flow: https://github.com/cms-sw/cmssw/blob/e04f43ec27fbf28a73d59caff99a5df70d9b3cef/RecoEgamma/ElectronIdentification/python/Identification/cutBasedElectronID_tools.py
+  isolation_implementation: https://github.com/cms-sw/cmssw/blob/e04f43ec27fbf28a73d59caff99a5df70d9b3cef/RecoEgamma/ElectronIdentification/plugins/cuts/GsfEleRelPFIsoScaledCut.cc
+  h_over_e_implementation: https://github.com/cms-sw/cmssw/blob/e04f43ec27fbf28a73d59caff99a5df70d9b3cef/RecoEgamma/ElectronIdentification/plugins/cuts/GsfEleHadronicOverEMEnergyScaledCut.cc
+  scouting_producer: https://github.com/CMS-Run3ScoutingTools/cmssw/blob/3bcde91ff6ce2e635c6672b5dfa3774a2a427986/PhysicsTools/NanoAOD/python/run3scouting_cff.py
+mapping:
+  superCluster.eta: eta
+  superCluster.energy: pt*cosh(eta)
+  full5x5_sigmaIetaIeta: sigmaIetaIeta
+  abs(dEtaInSeed): abs_dEtaIn
+  abs(dPhiIn): abs_dPhiIn
+  abs(1/E-1/p): abs_ooEMOop
+  hadronicOverEm: hOverE
+  missingInnerHits: missingHits
+  fixedGridRhoFastjetAll: ScoutingRho.fixedGridRhoFastjetAll
+  sumChargedHadronPt: trackIso
+  sumNeutralHadronEt: hcalIso
+  sumPhotonEt: ecalIso
+  conversionVeto: omitted; no matching conversion product in the stored scouting inputs
+limitations:
+- Isolation follows the supplied DPNote mapping (ECAL to photon, HCAL to hadron, track to charged). The official
+  CMSSW EA is applied to ECAL plus HCAL before the zero floor; track isolation stays outside the subtraction and
+  floor. This applies the offline prescription to scouting inputs without rerunning offline reconstruction.
+- Conversion veto is omitted. Missing hits are still applied and do not replace a conversion veto.
+- Scouting dEtaIn uses the SC seed and pixel-seed track, not the offline GSF track. Shower shape and track matching
+  retain the scouting reconstruction and precision.
+- The SC energy is approximated by pt*cosh(eta), SC eta by scouting eta, and offline rho by scouting PF rho.
+- All WPs share the existing analysis fiducial selection, candidates, weights and splits. Color pairing Tight/WP70,
+  Medium/WP80, Loose/WP90, Veto/WP95 is visual only; it does not assert equal efficiencies.
+- These references are evaluated only during validation and are not included in the exported online scouting ID.
+input_columns:
+- pt
+- eta
+- ScoutingRho.fixedGridRhoFastjetAll
+- ecalIso
+- hcalIso
+- trackIso
+- hOverE
+- sigmaIetaIeta
+- abs_dEtaIn
+- abs_dPhiIn
+- abs_ooEMOop
+- missingHits
+requirement: pt > 10
+lookup_tables:
+  offline_ea:
+    expression: abs(eta)
+    edges:
+    - 0.0
+    - 1.0
+    - 1.479
+    - 2.0
+    - 2.2
+    - 2.3
+    - 2.4
+    - 2.5
+    values:
+    - 0.1243
+    - 0.1458
+    - 0.0992
+    - 0.0794
+    - 0.0762
+    - 0.0766
+    - 0.1003
+define_variable:
+  offline_energy: pt*cosh(eta)
+  offline_neutral_iso:
+    expression: ecalIso + hcalIso - `ScoutingRho.fixedGridRhoFastjetAll`*offline_ea
+    lower: 0
+  offline_rel_iso: (trackIso + offline_neutral_iso)/pt
+regions:
+  Barrel:
+    requirement: abs(eta) < 1.4442
+    define_variable:
+      offline_hOverE: hOverE - (1.28 + 0.0422*`ScoutingRho.fixedGridRhoFastjetAll`)/offline_energy
+      offline_hOverE_Tight: hOverE - (1.16 + 0.0422*`ScoutingRho.fixedGridRhoFastjetAll`)/offline_energy
+      offline_rel_iso_scaled: offline_rel_iso - 0.535/pt
+    working_points:
+      Tight:
+        label: Offline mapped Tight
+        strict: true
+        cuts:
+          sigmaIetaIeta: 0.0101
+          abs_dEtaIn: 0.00411
+          abs_dPhiIn: 0.116
+          abs_ooEMOop: 0.023
+          offline_hOverE_Tight: 0.02
+          offline_rel_iso_scaled: 0.0388
+        fixed_cuts:
+          missingHits:
+            max: 1
+      Medium:
+        label: Offline mapped Medium
+        strict: true
+        cuts:
+          sigmaIetaIeta: 0.0103
+          abs_dEtaIn: 0.00481
+          abs_dPhiIn: 0.127
+          abs_ooEMOop: 0.0966
+          offline_hOverE: 0.0241
+          offline_rel_iso_scaled: 0.0837
+        fixed_cuts:
+          missingHits:
+            max: 1
+      Loose:
+        label: Offline mapped Loose
+        strict: true
+        cuts:
+          sigmaIetaIeta: 0.0107
+          abs_dEtaIn: 0.00691
+          abs_dPhiIn: 0.175
+          abs_ooEMOop: 0.138
+          offline_hOverE: 0.05
+          offline_rel_iso_scaled: 0.194
+        fixed_cuts:
+          missingHits:
+            max: 1
+      Veto:
+        label: Offline mapped Veto
+        strict: true
+        cuts:
+          sigmaIetaIeta: 0.0117
+          abs_dEtaIn: 0.0071
+          abs_dPhiIn: 0.208
+          abs_ooEMOop: 0.178
+          offline_hOverE: 0.05
+          offline_rel_iso_scaled: 0.406
+        fixed_cuts:
+          missingHits:
+            max: 2
+  Endcap:
+    requirement: (abs(eta) > 1.566) & (abs(eta) < 2.5)
+    define_variable:
+      offline_hOverE: hOverE - (2.3 + 0.262*`ScoutingRho.fixedGridRhoFastjetAll`)/offline_energy
+      offline_hOverE_Tight: hOverE - (0.5 + 0.262*`ScoutingRho.fixedGridRhoFastjetAll`)/offline_energy
+      offline_rel_iso_scaled: offline_rel_iso - 0.519/pt
+    working_points:
+      Tight:
+        label: Offline mapped Tight
+        strict: true
+        cuts:
+          sigmaIetaIeta: 0.027
+          abs_dEtaIn: 0.00938
+          abs_dPhiIn: 0.164
+          abs_ooEMOop: 0.018
+          offline_hOverE_Tight: 0.02
+          offline_rel_iso_scaled: 0.0544
+        fixed_cuts:
+          missingHits:
+            max: 1
+      Medium:
+        label: Offline mapped Medium
+        strict: true
+        cuts:
+          sigmaIetaIeta: 0.0272
+          abs_dEtaIn: 0.00951
+          abs_dPhiIn: 0.221
+          abs_ooEMOop: 0.111
+          offline_hOverE: 0.05
+          offline_rel_iso_scaled: 0.0741
+        fixed_cuts:
+          missingHits:
+            max: 1
+      Loose:
+        label: Offline mapped Loose
+        strict: true
+        cuts:
+          sigmaIetaIeta: 0.0275
+          abs_dEtaIn: 0.0121
+          abs_dPhiIn: 0.228
+          abs_ooEMOop: 0.127
+          offline_hOverE: 0.05
+          offline_rel_iso_scaled: 0.184
+        fixed_cuts:
+          missingHits:
+            max: 1
+      Veto:
+        label: Offline mapped Veto
+        strict: true
+        cuts:
+          sigmaIetaIeta: 0.0298
+          abs_dEtaIn: 0.0173
+          abs_dPhiIn: 0.234
+          abs_ooEMOop: 0.137
+          offline_hOverE: 0.05
+          offline_rel_iso_scaled: 0.342
+        fixed_cuts:
+          missingHits:
+            max: 3

@@ -14,7 +14,9 @@ import colorsys
 from workflow.data import edges, efficiency_stats, kinematic_weights
 from workflow.working_points import WP, load_tmva_wp_file, load_configured_wps, pass_fixed_cuts, print_id_table
 from workflow.InspectDistribution import define_variables
-from workflow.plotting import add_legend, configure_style, save_plot, series_panels, composition_panel, resolve_plot_style
+from workflow.plotting import (add_legend, configure_style, save_plot, series_panels, composition_panel,
+                               resolve_plot_style, wp_color_indices, wp_marker_style)
+from workflow.reference_ids import load_reference_recipes, add_reference_features
 from workflow.cut_plots import plot_cut_distribution
 
 def lighten_color(color, amount=0.3):
@@ -151,12 +153,14 @@ class ValidationAnalyzer:
     def _pass_wp(self, df_block: pd.DataFrame, wp: WP) -> np.ndarray:
         if "pass_column" in wp.meta:
             return df_block[wp.meta["pass_column"]].to_numpy(dtype=bool)
+        valid = (df_block[wp.meta["valid_column"]].to_numpy(dtype=bool)
+                 if "valid_column" in wp.meta else np.ones(len(df_block), dtype=bool))
         if wp.meta.get("strict", False):
             mask = np.ones(len(df_block), dtype=bool)
             for var, (lo, hi) in wp.window_cuts.items():
                 mask &= (df_block[var].to_numpy() > lo) & (df_block[var].to_numpy() < hi)
-            return mask & pass_fixed_cuts(df_block, wp.meta.get("fixed_cuts", {}))
-        return self._apply_window_cuts_block(df_block, wp.window_cuts) & pass_fixed_cuts(df_block, wp.meta.get("fixed_cuts", {}))
+            return valid & mask & pass_fixed_cuts(df_block, wp.meta.get("fixed_cuts", {}))
+        return valid & self._apply_window_cuts_block(df_block, wp.window_cuts) & pass_fixed_cuts(df_block, wp.meta.get("fixed_cuts", {}))
 
     @staticmethod
     def _efficiency(sel: np.ndarray, weights: np.ndarray) -> float:
@@ -321,17 +325,19 @@ class ValidationAnalyzer:
         markers = ["o", "s", "^", "D", "v", "<", ">", "h", "p", "*", "X"]
         source_markers = (self.plot_style or {}).get("source_markers", {})
         pairs = [(source, wp) for source, wps in self.wp_sources.items() for wp in wps]
+        indices = wp_color_indices(self.wp_sources, self.plot_style)
+        color_count = max(indices.values()) + 1
         palettes = (self.plot_style or {}).get("process_palettes", {})
         palette = (self.plot_style or {}).get("wp_palette")
         colors = palettes.get(category, palette if palette is not None else OKABE_ITO)
         if category not in palettes and category is not None and not self._is_signal(category):
             colors = [shift_hue(color) for color in colors]
         configured = category in palettes or palette is not None
-        if configured and len(colors) < len(pairs):
-            raise ValueError(f"Palette for {category} needs at least {len(pairs)} distinct WP colors")
-        if configured and len({mc.to_rgba(color) for color in colors[:len(pairs)]}) != len(pairs):
+        if configured and len(colors) < color_count:
+            raise ValueError(f"Palette for {category} needs at least {color_count} distinct WP colors")
+        if configured and len({mc.to_rgba(color) for color in colors[:color_count]}) != color_count:
             raise ValueError(f"Palette for {category} contains duplicate WP colors")
-        return {(source, wp.name): (colors[i % len(colors)], source_markers.get(source, markers[i % len(markers)]))
+        return {(source, wp.name): (colors[indices[source, wp.name] % len(colors)], source_markers.get(source, markers[i % len(markers)]))
                 for i, (source, wp) in enumerate(pairs)}
 
     # ---------------------------
@@ -375,8 +381,8 @@ class ValidationAnalyzer:
                             name = wp.meta.get("label", wp.name)
                             color, marker = styles[(source, wp.name)]
                             ax.plot(bkg_eff, sig_eff, marker=marker,
-                                    linestyle="none", color=color, markersize=8, fillstyle="full",
-                                    markerfacecolor=color, zorder=3,
+                                    linestyle="none", color=color, markersize=8, markeredgewidth=1.5, zorder=3,
+                                    **wp_marker_style(source, color, self.plot_style),
                                     label=((f"{self._wp_label(source, wp)} / {background}" if len(backgrounds) > 1
                                             else self._wp_label(source, wp)) if self.processes
                                            else source if wp is wps[0] else "_nolegend_"))
@@ -467,8 +473,7 @@ class ValidationAnalyzer:
                         axis.errorbar(centers, points.efficiency, yerr=points.error,
                                       xerr=[centers-points.low, points.high-centers] if x_errors else None,
                                       fmt=marker, linestyle=line_styles.get(role, "none"), markersize=5,
-                                      color=color, markerfacecolor=color,
-                                      fillstyle="full",
+                                      color=color, **wp_marker_style(source, color, self.plot_style),
                                       markeredgewidth=1.4, capsize=2,
                                       label=(self._wp_label(source, wp) if per_process else
                                              f"{self._wp_label(source, wp)} {self._category_label(category)}"))
@@ -485,6 +490,9 @@ class ValidationAnalyzer:
                                 point = container.lines[0]
                                 name = container.get_label()
                                 handles[name] = Line2D([], [], color=point.get_color(), marker=point.get_marker(),
+                                                       markerfacecolor=point.get_markerfacecolor(),
+                                                       markeredgecolor=point.get_markeredgecolor(),
+                                                       fillstyle=point.get_fillstyle(),
                                                        linestyle="none", label=name)
                             role_handles = []
                             for category in data.category.unique():
@@ -699,6 +707,7 @@ def ValidateIDAnalysis(**kwargs):
 
     outdir = kwargs.pop("outputdir", os.path.join(inputdir, "validation_plots"))
     wp_sources_cfg = kwargs.pop("wp_sources", None)
+    references = load_reference_recipes(kwargs.get("reference_sources"), kwargs.get("config_dir", "."))
 
     id_corrections = None
     if kwargs.get("id_correctionlib"):
@@ -750,6 +759,8 @@ def ValidateIDAnalysis(**kwargs):
             console.print(f"  [cyan]Source {src_name}[/cyan]: loading WPs from {path}")
             options = (wp_sources_cfg or {}).get(src_name, {})
             wp_sources[src_name] = load_configured_wps(path, {} if isinstance(options, str) else options)
+        if set(references) & set(wp_sources):
+            raise ValueError("Reference source names must differ from trained WP source names")
 
         if id_corrections is not None:
             expected_names = {f"{source}/{wp.name}" for source, wps in wp_sources.items() for wp in wps}
@@ -765,6 +776,7 @@ def ValidateIDAnalysis(**kwargs):
         columns = kwargs.get("input_columns")
         if columns is not None:
             extra = {var for wps in wp_sources.values() for wp in wps for var in wp.meta.get("fixed_cuts", {})}
+            extra.update(column for item in references.values() for column in item["recipe"]["input_columns"])
             extra.update((kwargs.get("roc_reweight") or {}).get("binning", {}))
             extra.update(set(kwargs.get("cut_distributions", {})) - set(kwargs.get("define_variable", {})))
             composition = (kwargs.get("plot_style") or {}).get("composition", {})
@@ -801,8 +813,7 @@ def ValidateIDAnalysis(**kwargs):
             raise ValueError(f"No validation candidates for {region}")
 
         reg_out = os.path.join(outdir, region)
-        print_id_table({region: wp_sources}, os.path.join(reg_out, "cutbased_id.md"), kwargs.get("id_requirement", requirement),
-                       kwargs.get("region_definition"))
+        os.makedirs(reg_out, exist_ok=True)
 
         roc_reweight = kwargs.get("roc_reweight")
         if roc_reweight:
@@ -846,6 +857,16 @@ def ValidateIDAnalysis(**kwargs):
             if any(item["mismatches"] for item in checks):
                 raise ValueError(f"Correctionlib ID differs from reference cuts in {region}; see id_equivalence.json")
             del reference
+
+        # References are validation-only; an existing exported online ID stays usable.
+        for source, item in references.items():
+            wp_sources[source] = add_reference_features(df, source, item["recipe"], region)
+        print_id_table({region: wp_sources}, os.path.join(reg_out, "cutbased_id.md"), kwargs.get("id_requirement", requirement),
+                       kwargs.get("region_definition"))
+        if references:
+            with open(os.path.join(reg_out, "reference_ids.json"), "w") as handle:
+                json.dump(dict(region=region, denominator="same selected candidates and weights as online IDs",
+                               references=references), handle, indent=2, allow_nan=False)
 
         options = dict(processes=datasets, connect_sources=kwargs.get("connect_sources", ()),
                        dedicated_wps=kwargs.get("dedicated_wps", False), regions=[region],

@@ -126,6 +126,11 @@ def run(config_path, inputdir, outputdir, steps=None, studies=None, manifest=Non
         print(json.dumps(report, indent=2))
         return
     resolved = dict(configuration=cfg, base=base, inputdir=shared["inputdir"])
+    if workflow.get("ValidateID", {}).get("reference_sources"):
+        from workflow.reference_ids import load_reference_recipes
+        references = load_reference_recipes(workflow["ValidateID"].get("reference_sources"), config_path.parent)
+        if references:
+            resolved["reference_artifacts"] = references
     if regions is not None:
         resolved["regions"] = regions
     if prepared_dir is not None:
@@ -166,6 +171,8 @@ def run(config_path, inputdir, outputdir, steps=None, studies=None, manifest=Non
         arguments = dict(shared)
         arguments.update(deepcopy(workflow[name]))
         arguments.update(overrides)
+        if name == "ValidateID":
+            arguments["config_dir"] = str(config_path.parent)
         module = importlib.import_module(f"workflow.{name}")
         return getattr(module, f"{name}Analysis")(**arguments)
 

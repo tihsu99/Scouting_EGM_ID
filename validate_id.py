@@ -10,6 +10,7 @@ import yaml
 from workflow.InspectDistribution import InspectDistributionAnalysis
 from workflow.ValidateID import ValidateIDAnalysis
 from workflow.working_points import configured_wp_sources, load_id_config
+from workflow.reference_ids import load_reference_recipes
 
 
 def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=None,
@@ -25,6 +26,8 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
     regions = cfg.get("regions", preparation["regions"])
     sources = configured_wp_sources(base, cfg)
     artifacts = {"correction_lib": correction_lib}
+    for source, item in load_reference_recipes(cfg.get("validation", {}).get("reference_sources"), config_path.parent).items():
+        artifacts[f"reference/{source}"] = item["path"]
     if id_correctionlib:
         artifacts["id_correctionlib"] = str(Path(id_correctionlib).resolve())
     for source, options in sources.items():
@@ -100,6 +103,7 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
                 if key in plot_style:
                     plot_style[key] = plot_style[key].format(comparison=name, **paths)
             ValidateIDAnalysis(inputdir=paths["prepared_dir"], outputdir=str(output / name),
+                               config_dir=str(config_path.parent),
                                datasets=selected, regions=regions, wp_sources=sources,
                                region_definition=base["region_definition"],
                                plot_style=plot_style,

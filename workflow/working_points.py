@@ -136,6 +136,11 @@ def pass_fixed_cuts(frame, cuts):
 def load_tmva_wp_file(path):
     with open(path) as handle:
         specification = json.load(handle)
+    return working_points_from_spec(specification)
+
+
+def working_points_from_spec(specification):
+    """Read the shared cut format from a JSON file or an inline reference recipe."""
     wps = []
     for name, entry in specification.items():
         if "window_cuts" in entry:
@@ -260,8 +265,12 @@ def print_id_table(wps_by_region, output=None, requirement=None, region_definiti
         if region_definitions and region in region_definitions:
             lines.extend([f"Region selection: `{region_definitions[region]['requirement']}`.", ""])
         for source, wps in sources.items():
-            lines.extend([f"### {source}", "",
-                          "| Variable | " + " | ".join(wp.meta.get("label", wp.name) for wp in wps) + " |",
+            lines.extend([f"### {source}", ""])
+            if wps and wps[0].meta.get("reference_kind"):
+                lines.extend([wps[0].meta["reference_kind"] + ". Formulas, mappings and source hashes: `reference_ids.json`.", ""])
+                lines.extend(["- " + note for note in wps[0].meta["reference_limitations"]])
+                lines.append("")
+            lines.extend(["| Variable | " + " | ".join(wp.meta.get("label", wp.name) for wp in wps) + " |",
                           "|---|" + "---|" * len(wps)])
             variables = dict.fromkeys(variable for wp in wps
                                       for variable in [*wp.window_cuts, *wp.meta.get("fixed_cuts", {})])
@@ -274,8 +283,8 @@ def print_id_table(wps_by_region, output=None, requirement=None, region_definiti
             lines.append("")
     lines.extend(calibration_table_lines(definitions, calibration, precision))
     lines.extend(["All cuts in a column are applied together, after the configured feature calibration.",
-                  "Fixed cuts use inclusive bounds. WP names denote nominal optimization targets; "
-                  "efficiencies after fixed cuts must be measured.",
+                  "Fixed cuts use inclusive bounds. Optimized WP names denote nominal optimization targets; "
+                  "reference names retain their source definitions. Efficiencies after all cuts must be measured.",
                   f"Numbers are displayed to {precision} significant digits; JSON retains the exact thresholds and coefficients.", ""])
     if include_usage:
         lines.extend(ID_USAGE_MARKDOWN.splitlines())
