@@ -1,0 +1,5 @@
+# Same samples and ROC weights as standard, with only current Iso and Default IDs.
+base_config: electron_pipeline.yaml
+validation:
+  reference_sources: {}
+  correctionlib_references: {}
