@@ -1,0 +1,19 @@
+# Same samples, cuts and ROC weights as standard; replace only the reference ID.
+base_config: electron_pipeline.yaml
+validation:
+  reference_sources: {}
+  correctionlib_references:
+    PreviousDerived:
+      path: /eos/user/t/tihsu/dataset/scouting_id/Release_Working_Points/Electron/CorrectionLib/scouting_id.json.gz
+      # Select the previous derived Iso WPs, excluding duplicate Default IDs.
+      prefix: Iso/
+      labels:
+        WP70: Previous WP70
+        WP80: Previous WP80
+        WP90: Previous WP90
+        WP95: Previous WP95
+plot_style:
+  source_markers: {Iso: o, Default: s, PreviousDerived: o}
+  source_fillstyles: {PreviousDerived: none}
+  wp_color_indices:
+    PreviousDerived: {WP70: 0, WP80: 1, WP90: 2, WP95: 3}

@@ -1,0 +1,2 @@
+# Full DY/Zprime versus TT/QCD comparison using the current electron definitions.
+base_config: electron_pipeline.yaml
