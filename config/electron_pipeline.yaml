@@ -19,8 +19,8 @@ normalization: {}
 calibration_samples: [DYToLL_M50]
 studies:
   dy_tt:
-    signal: [DYToLL_M50]
-    background: [TT]
+    signal: &electron_signal_samples [DYToLL_M50]
+    background: &electron_background_samples [TT]
 shared:
   electron_response_max_relative_pt: 0.5
   n_files: -1
@@ -346,10 +346,14 @@ evaluation:
     DY:
       label: DY prompt/direct-tau; relative pT difference < 0.5
       path: '{prepared_dir}/{region}/valid/signal.parquet'
+      samples: *electron_signal_samples
+      validation_split: heldout
       requirement: ((status == 1) | (status == 2)) & (pt > 10) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.566) & (abs(eta) < 2.5)))
     TT:
       label: TT unmatched/nonprompt + failed-response prompt/tau
       path: '{prepared_dir}/{region}/valid/background.parquet'
+      samples: *electron_background_samples
+      validation_split: heldout
       requirement: *electron_background_requirement
     QCD:
       label: QCD unmatched/nonprompt

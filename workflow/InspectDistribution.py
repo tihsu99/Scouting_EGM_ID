@@ -30,6 +30,9 @@ def define_variables(frame, definitions, progress=False, desc="Features"):
 
 
 def InspectDistributionAnalysis(**kwargs):
+    validation_split = kwargs.get("validation_split", "all")
+    if validation_split not in ("all", "heldout"):
+        raise ValueError("validation_split must be all or heldout")
     plot_style = kwargs.get("plot_style")
     progress = kwargs.get("progress", False)
     configure_style(plot_style)
@@ -62,6 +65,11 @@ def InspectDistributionAnalysis(**kwargs):
         train, valid = {}, {}
         for name, frame in selected.items():
             if kwargs.get("validation_only", False):
+                if validation_split == "heldout":
+                    frame = event_split(frame, kwargs.get("train_ratio", 0.8),
+                                        kwargs.get("random_seed", 42), kwargs.get("split_columns"))[1]
+                    if frame.empty:
+                        raise ValueError(f"Empty validation partition for {name} in {region}")
                 valid[name] = frame
             else:
                 train[name], valid[name] = event_split(frame, kwargs.get("train_ratio", 0.8),

@@ -20,8 +20,9 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
     cfg, base, _ = load_id_config(config_path)
     preparation = deepcopy(base["workflow"]["InspectDistribution"])
     correctionlib_only = bool(id_correctionlib and training_dir is None)
+    prepared_root = prepared_dir or preparation.get("storedir")
     paths = dict(inputdir=str(Path(inputdir or base["inputdir"]).resolve()),
-                 prepared_dir=str(Path(prepared_dir or preparation["storedir"]).resolve()),
+                 prepared_dir=str(Path(prepared_root or Path(outputdir) / "evaluation_data").resolve()),
                  training_dir=None if correctionlib_only else str(Path(
                      training_dir or base["workflow"]["TrainCutBasedID_TMVA"]["outputdir"]).resolve()),
                  outputdir=str(Path(outputdir).resolve()), config_dir=str(config_path.parent), region="{region}")
@@ -97,10 +98,14 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
     for name, dataset in datasets.items():
         if name not in used:
             continue
-        if "path" in dataset:
-            inputs = dataset["path"] if isinstance(dataset["path"], list) else [dataset["path"]]
+        inputs = dataset.get("path", [])
+        inputs = inputs if isinstance(inputs, list) else [inputs]
+        from_raw = not inputs or (not prepared_root and any("{prepared_dir}" in path for path in inputs))
+        if not from_raw:
             dataset["path"] = [path.format(**paths) for path in inputs]
         else:
+            if not dataset.get("samples"):
+                raise ValueError(f"Dataset {name} needs --prepared-dir or YAML samples for preparation from --inputdir")
             dataset["path"] = []
             # Prepare one sample at a time; QCD has many independent generation bins.
             for sample in dataset["samples"]:
@@ -109,13 +114,21 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
                 if "prepare" in steps:
                     arguments = dict(shared, process={name: {
                         "samples": {sample: 1.0}, "requirement": dataset["requirement"]}},
+                        validation_split=dataset.get("validation_split", "all"),
                         storedir=str(data_dir), plotdir=str(output / "preparation" / name / sample))
                     InspectDistributionAnalysis(**arguments)
         for region in regions:
             for template in dataset["path"]:
                 path = Path(template.format(region=region))
                 if not path.is_file():
-                    raise FileNotFoundError(f"Missing validation table for {name}: {path}")
+                    if from_raw:
+                        recovery = "Run with --steps prepare plot to build the evaluation cache from --inputdir."
+                    elif dataset.get("samples") and any("{prepared_dir}" in item for item in inputs):
+                        recovery = ("Point --prepared-dir at existing regional validation tables, or omit it "
+                                    "and use --steps prepare plot with a new --outputdir to prepare from --inputdir.")
+                    else:
+                        recovery = "Check the configured dataset path and --prepared-dir."
+                    raise FileNotFoundError(f"Missing validation table for {name}: {path}. {recovery}")
 
     if "plot" in steps:
         for name, comparison in cfg["comparisons"].items():
@@ -142,8 +155,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("config")
     parser.add_argument("--outputdir", required=True)
-    parser.add_argument("--inputdir", help="Independent sample folders; defaults to base_config inputdir")
-    parser.add_argument("--prepared-dir", help="Existing held-out data; defaults to base_config storedir")
+    parser.add_argument("--inputdir", help="Raw sample folders; defaults to base_config inputdir")
+    parser.add_argument("--prepared-dir", help="Existing held-out data; uses base_config storedir when set, "
+                        "otherwise prepares YAML samples under outputdir/evaluation_data")
     parser.add_argument("--training-dir", help="WP directory; omit with --id-correctionlib to use only the exported ID")
     parser.add_argument("--correction-lib", help="Completed correction JSON; defaults to base_config correction_lib")
     parser.add_argument("--id-correctionlib", help="Full ID JSON; --training-dir optionally enables the training-WP cross-check")
