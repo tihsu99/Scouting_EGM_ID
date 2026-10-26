@@ -138,12 +138,18 @@ def run(config_path, inputdir, correction_lib, outputdir):
                                       cfg["min_entries_per_bin"])
             style = dict(cfg.get("plot_style") or {})
             style["fit_labels"] = dict(style.get("fit_labels", {}), **spec.get("fit_labels", {}))
+            reference_label = spec.get("reference_label", f"Existing correctionlib: {name} × pT")
+            old = subset[name].to_numpy()
+            if len(old):
+                old_value = (f"{old[0]:.4g}" if np.allclose(old, old[0], rtol=1e-12, atol=0)
+                             else f"[{old.min():.4g}, {old.max():.4g}] (varies within eta bin)")
+                reference_label += f"\n{name} = {old_value} (coefficient of pT)"
             result = fit_and_plot((low, high, subset.pt.to_numpy(), y, "pt", spec["y"], str(output / "fits"),
                 spec["fitted_func"], name, spec["y_type"], bins, spec["x_title"], spec["y_title"], spec["title"],
                 subset.calibration_weight.to_numpy(), next(iter(coefficients.values()))),
                 style, cfg["min_entries_per_bin"],
                 reference=dict(x=old_term.x, y=old_term.value * old_term.x,
-                               label=spec.get("reference_label", f"Existing correctionlib: {name} × pT")))
+                               label=reference_label), fit_range=spec.get("fit_range"))
             for target, parameter in coefficients.items():
                 value = result["parameters"][parameter]
                 values[target].append(value)
@@ -155,6 +161,8 @@ def run(config_path, inputdir, correction_lib, outputdir):
                                     new_applied=new, scale_factor=new / old[0] if constant and old[0] != 0 else np.nan,
                                     delta_if_constant=new - old[0] if constant else np.nan))
             profile = binned_profile(subset.pt, y, subset.calibration_weight, bins, spec["y_type"], cfg["min_entries_per_bin"])
+            fit_range = result["fit_range"] or [bins[0], bins[-1]]
+            profile["used_in_fit"] = np.isfinite(profile.value) & profile.x.between(*fit_range)
             fit_profiles.append(profile.assign(coefficient=name, eta_min=low, eta_max=high))
         for target, fitted_values in values.items():
             item = next((item for item in candidate_payload["corrections"] if item["name"] == target), None)

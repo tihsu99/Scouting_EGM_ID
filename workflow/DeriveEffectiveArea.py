@@ -6,6 +6,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 from concurrent.futures import ProcessPoolExecutor
+from functools import partial
 from itertools import repeat
 from correctionlib.schemav2 import Correction, CorrectionSet
 import correctionlib.schemav2 as cs
@@ -67,7 +68,7 @@ def binned_profile(x, y, weights, bins, y_type, min_entries=1):
     return pd.DataFrame(rows)
 
 # === Parallel fit and plot ===
-def fit_and_plot(args, plot_style=None, min_entries=1, reference=None):
+def fit_and_plot(args, plot_style=None, min_entries=1, reference=None, fit_range=None):
     (eta_min, eta_max, x_sel, y_sel, x_expr, y_expr,
      plotdir, fitted_func_str, var_name, y_type, x_bins,
      x_title, y_title, title, weights, coefficient) = args
@@ -89,6 +90,15 @@ def fit_and_plot(args, plot_style=None, min_entries=1, reference=None):
         x_fit_data = populated.x.to_numpy()
         y_fit_data = populated.value.to_numpy()
 
+    x_plot_data, y_plot_data = np.asarray(x_fit_data), np.asarray(y_fit_data)
+    if fit_range is not None:
+        fit_range = np.asarray(fit_range, dtype=float)
+        if fit_range.shape != (2,) or not np.isfinite(fit_range).all() or fit_range[0] >= fit_range[1]:
+            raise ValueError("fit_range must contain two finite, increasing bounds")
+        # Select profile bin centers without changing the measured profile or its binning.
+        selected = (x_plot_data >= fit_range[0]) & (x_plot_data <= fit_range[1])
+        x_fit_data, y_fit_data = x_plot_data[selected], y_plot_data[selected]
+
     # --- Fit function ---
     func, params, expr = parse_fitted_function(fitted_func_str)
     if coefficient not in params or len(x_fit_data) <= len(params):
@@ -103,16 +113,25 @@ def fit_and_plot(args, plot_style=None, min_entries=1, reference=None):
     if y_type.lower() == "none":
         ax.scatter(x_sel, y_sel, s=5, alpha=0.4, label=labels.get("profile", "Data"))
     elif y_type.lower() == "mean":
-        ax.errorbar(x_fit_data, y_fit_data, fmt="o", label=labels.get("profile", "Profile mean"))
+        ax.errorbar(x_plot_data, y_plot_data, fmt="o", label=labels.get("profile", "Profile mean"))
     elif "contour" in y_type.lower():
         quantile_level = int(y_type.lower().replace("contour", ""))
-        ax.plot(x_fit_data, y_fit_data, "o", label=labels.get("profile", f"Quantile {quantile_level}%"))
+        ax.plot(x_plot_data, y_plot_data, "o", label=labels.get("profile", f"Quantile {quantile_level}%"))
     else:
         raise ValueError(f"Unknown plot type: {y_type}")
 
     # Fit line
-    x_fit = np.linspace(np.nanmin(x_fit_data), np.nanmax(x_fit_data), 300)
+    plot_low, plot_high = np.nanmin(x_plot_data), np.nanmax(x_plot_data)
+    fit_low, fit_high = ((plot_low, plot_high) if fit_range is None else
+                         (max(plot_low, fit_range[0]), min(plot_high, fit_range[1])))
+    x_fit = np.linspace(fit_low, fit_high, 300)
     ax.plot(x_fit, func(x_fit, *popt), color="red", label=labels.get("fit", "Fit"))
+    extrapolation_label = "Fit extrapolation"
+    for low, high in ((plot_low, fit_low), (fit_high, plot_high)):
+        if low < high:
+            x_extra = np.linspace(low, high, 100)
+            ax.plot(x_extra, func(x_extra, *popt), color="red", linestyle="--", label=extrapolation_label)
+            extrapolation_label = "_nolegend_"
     if reference is not None:
         ax.plot(reference["x"], reference["y"], color="#D55E00", linestyle="--", label=reference["label"])
 
@@ -121,6 +140,8 @@ def fit_and_plot(args, plot_style=None, min_entries=1, reference=None):
 
     # Let one legend lay out the fit details and entries together at any configured location.
     txt = [rf"range: {eta_min} < $|\eta|$ < {eta_max}", f"Fit: y = {expr}"]
+    if fit_range is not None:
+        txt.append(f"Fit range: {fit_range[0]:g} ≤ {x_expr} ≤ {fit_range[1]:g}")
     for n, v, e in zip(params, popt, perr):
         txt.append(f"{n} = {v:.4g} ± {e:.4g}")
     legend = add_legend(ax, plot_style, title="\n".join(txt))
@@ -133,6 +154,7 @@ def fit_and_plot(args, plot_style=None, min_entries=1, reference=None):
     return {"value": float(popt[params.index(coefficient)]), "eta_min": eta_min, "eta_max": eta_max,
             "parameters": dict(zip(params, popt.tolist())), "errors": dict(zip(params, perr.tolist())),
             "parameter_order": params, "covariance": pcov.tolist(),
+            "fit_range": None if fit_range is None else fit_range.tolist(),
             "fit_bins": len(x_fit_data), "entries": len(x_sel)}
 
 
@@ -246,7 +268,8 @@ def DeriveEffectiveAreaAnalysis(**kwargs):
         plot_style.update(inspect_dict.get("plot_style", {}))
         with ProcessPoolExecutor(max_workers=min(n_workers, len(tasks))) as ex:
             # map preserves eta-bin order even when worker completion order differs.
-            results = list(ex.map(fit_and_plot, tasks, repeat(plot_style)))
+            results = list(ex.map(partial(fit_and_plot, fit_range=inspect_dict.get("fit_range")),
+                                  tasks, repeat(plot_style)))
 
         summary_df = pd.DataFrame(results)
         summary_df["diagnostic_only"] = diagnostic_only

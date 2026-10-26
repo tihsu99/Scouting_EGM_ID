@@ -5,6 +5,7 @@ pt_binning: [20, 3000, 40]
 min_entries_per_bin: 100
 fits:
   IH_pt:
+    fit_range: [20, 2000]
     fitted_func: y = A1*x + A2*x**2 + A3
     coefficients: {IH_pt: A1, IH_pt2: A2}
     reference_label: 'Existing correctionlib: HCAL pT subtraction'
