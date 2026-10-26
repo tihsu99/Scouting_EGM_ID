@@ -20,6 +20,7 @@ from workflow.plotting import (add_legend, configure_style, save_plot, series_pa
 from workflow.reference_ids import (load_reference_recipes, add_reference_features,
                                     load_correctionlib_references, add_correctionlib_reference)
 from workflow.cut_plots import plot_cut_distribution
+from workflow.exported_ids import evaluate_exported_wps
 
 def lighten_color(color, amount=0.3):
     """
@@ -157,6 +158,12 @@ class ValidationAnalyzer:
             return df_block[wp.meta["pass_column"]].to_numpy(dtype=bool)
         valid = (df_block[wp.meta["valid_column"]].to_numpy(dtype=bool)
                  if "valid_column" in wp.meta else np.ones(len(df_block), dtype=bool))
+        if "component_columns" in wp.meta:
+            valid = valid.copy()
+            for columns in wp.meta["component_columns"].values():
+                for column in columns:
+                    valid &= df_block[column].to_numpy(dtype=bool)
+            return valid
         if wp.meta.get("strict", False):
             mask = np.ones(len(df_block), dtype=bool)
             for var, (lo, hi) in wp.window_cuts.items():
@@ -442,11 +449,15 @@ class ValidationAnalyzer:
                         evaluated_wp = wp
                         if excluded_variable is not None:
                             fixed = wp.meta.get("fixed_cuts", {})
-                            if excluded_variable not in wp.window_cuts and excluded_variable not in fixed:
+                            components = wp.meta.get("component_columns", {})
+                            if (excluded_variable not in wp.window_cuts and excluded_variable not in fixed
+                                    and excluded_variable not in components):
                                 continue
                             # A cached full-ID decision cannot represent N-minus-one.
                             meta = {key: value for key, value in wp.meta.items() if key != "pass_column"}
                             meta["fixed_cuts"] = {var: cut for var, cut in fixed.items() if var != excluded_variable}
+                            if "component_columns" in meta:
+                                meta["component_columns"] = {var: cols for var, cols in components.items() if var != excluded_variable}
                             evaluated_wp = WP(wp.name,
                                 {var: cut for var, cut in wp.window_cuts.items() if var != excluded_variable}, meta)
                         passed = self._pass_wp(block, evaluated_wp)
@@ -466,6 +477,8 @@ class ValidationAnalyzer:
                                     rows[-1].update(excluded_variable=excluded_variable,
                                         removed_bounds=json.dumps(cut_bounds(wp, excluded_variable)),
                                         validity_column=wp.meta.get("valid_column", ""))
+                                    if "id_components" in wp.meta:
+                                        rows[-1]["removed_components"] = json.dumps(wp.meta["id_components"][excluded_variable])
                 if not rows:
                     continue
                 metrics = pd.DataFrame(rows)
@@ -560,10 +573,11 @@ class ValidationAnalyzer:
             return
         cut_labels = cut_labels or {}
         variables = dict.fromkeys(variable for wps in self.wp_sources.values() for wp in wps
-                                  for variable in (*wp.window_cuts, *wp.meta.get("fixed_cuts", {})))
+                                  for variable in (*wp.window_cuts, *wp.meta.get("fixed_cuts", {}),
+                                                   *wp.meta.get("component_columns", {})))
         for source, wps in self.wp_sources.items():
             for wp in wps:
-                if not wp.window_cuts and not wp.meta.get("fixed_cuts"):
+                if not wp.window_cuts and not wp.meta.get("fixed_cuts") and not wp.meta.get("component_columns"):
                     console.print(f"[yellow]N-minus-one efficiencies: skipping {source}/{wp.name}; "
                                   "individual cut definitions are unavailable[/yellow]")
         for variable in variables:
@@ -751,6 +765,7 @@ def ValidateIDAnalysis(**kwargs):
 
     outdir = kwargs.pop("outputdir", os.path.join(inputdir, "validation_plots"))
     wp_sources_cfg = kwargs.pop("wp_sources", None)
+    exported_id = kwargs.pop("exported_id", None)
     references = load_reference_recipes(kwargs.get("reference_sources"), kwargs.get("config_dir", "."))
     correctionlib_references = load_correctionlib_references(
         kwargs.get("correctionlib_references"), kwargs.get("config_dir", "."))
@@ -770,7 +785,7 @@ def ValidateIDAnalysis(**kwargs):
         from apply_id import evaluate_id, id_evaluators, id_inputs
         if variables:
             raise ValueError("Full correctionlib IDs support ROC/efficiency validation, not N-minus-one distributions")
-        id_corrections = correctionlib.CorrectionSet.from_file(str(kwargs["id_correctionlib"]))
+        id_corrections = exported_id[0] if exported_id else correctionlib.CorrectionSet.from_file(str(kwargs["id_correctionlib"]))
         if kwargs.get("input_columns") is not None:
             raw_columns = {item.name for correction in id_evaluators(id_corrections).values()
                            for item in id_inputs(correction)}
@@ -789,7 +804,9 @@ def ValidateIDAnalysis(**kwargs):
         region_dir = os.path.join(inputdir, region)
 
         # --- Resolve WP JSON paths for this region ---
-        if wp_sources_cfg is not None:
+        if exported_id:
+            wp_paths = {}
+        elif wp_sources_cfg is not None:
             wp_paths: Dict[str, str] = {}
             for src_name, tmpl in wp_sources_cfg.items():
                 if not isinstance(tmpl, str):
@@ -809,7 +826,7 @@ def ValidateIDAnalysis(**kwargs):
             wp_paths = {"Default": default_path}
 
         # --- Load TMVA-style WPs for all sources ---
-        wp_sources: Dict[str, List[WP]] = {}
+        wp_sources: Dict[str, List[WP]] = exported_id[1] if exported_id else {}
         for src_name, path in wp_paths.items():
             console.print(f"  [cyan]Source {src_name}[/cyan]: loading WPs from {path}")
             options = (wp_sources_cfg or {}).get(src_name, {})
@@ -817,7 +834,7 @@ def ValidateIDAnalysis(**kwargs):
         if (set(references) | set(correctionlib_references)) & set(wp_sources):
             raise ValueError("Reference source names must differ from trained WP source names")
 
-        if id_corrections is not None:
+        if id_corrections is not None and not exported_id:
             expected_names = {f"{source}/{wp.name}" for source, wps in wp_sources.items() for wp in wps}
             missing = sorted(expected_names - set(id_evaluators(id_corrections)))
             if missing:
@@ -896,7 +913,12 @@ def ValidateIDAnalysis(**kwargs):
             with open(os.path.join(reg_out, "roc_reweighting.json"), "w") as handle:
                 json.dump(report, handle, indent=2)
 
-        if id_corrections is not None:
+        if exported_id:
+            wp_sources, checks = evaluate_exported_wps(df, *exported_id)
+            with open(os.path.join(reg_out, "id_equivalence.json"), "w") as handle:
+                json.dump(dict(backend="correctionlib", reference="exported components; no training WP comparison",
+                               checks=checks), handle, indent=2)
+        elif id_corrections is not None:
             reference = ValidationAnalyzer(df, wp_sources, plot_style=kwargs.get("plot_style"))
             checks = []
             for source, wps in wp_sources.items():
@@ -979,7 +1001,11 @@ def ValidateIDAnalysis(**kwargs):
             xscales={v: cfg.get("xscale", "linear") for v, cfg in monitor_eff.items()},
         )
 
-        va.plot_cut_distributions(kwargs.get("cut_distributions", {}), os.path.join(reg_out, "cut_distributions"))
+        if exported_id:
+            console.print("Correctionlib-only validation: cut-distribution threshold overlays are skipped; "
+                          "full-ID and N-minus-one efficiencies use the exported ID.")
+        else:
+            va.plot_cut_distributions(kwargs.get("cut_distributions", {}), os.path.join(reg_out, "cut_distributions"))
         if nminus1_efficiencies:
             va.plot_nminus1_efficiencies(
                 monitor_eff, os.path.join(reg_out, "nminus1_efficiencies"),

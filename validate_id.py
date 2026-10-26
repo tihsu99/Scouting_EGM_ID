@@ -11,6 +11,7 @@ from workflow.InspectDistribution import InspectDistributionAnalysis
 from workflow.ValidateID import ValidateIDAnalysis
 from workflow.working_points import configured_wp_sources, load_id_config
 from workflow.reference_ids import load_reference_recipes, load_correctionlib_references
+from workflow.exported_ids import load_exported_wps
 
 
 def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=None,
@@ -18,13 +19,20 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
     config_path = Path(config_path).resolve()
     cfg, base, _ = load_id_config(config_path)
     preparation = deepcopy(base["workflow"]["InspectDistribution"])
+    correctionlib_only = bool(id_correctionlib and training_dir is None)
     paths = dict(inputdir=str(Path(inputdir or base["inputdir"]).resolve()),
                  prepared_dir=str(Path(prepared_dir or preparation["storedir"]).resolve()),
-                 training_dir=str(Path(training_dir or base["workflow"]["TrainCutBasedID_TMVA"]["outputdir"]).resolve()),
+                 training_dir=None if correctionlib_only else str(Path(
+                     training_dir or base["workflow"]["TrainCutBasedID_TMVA"]["outputdir"]).resolve()),
                  outputdir=str(Path(outputdir).resolve()), config_dir=str(config_path.parent), region="{region}")
     correction_lib = str(Path(correction_lib or preparation["correction_lib"]).resolve())
     regions = cfg.get("regions", preparation["regions"])
-    sources = configured_wp_sources(base, cfg)
+    sources = {} if correctionlib_only else configured_wp_sources(base, cfg)
+    exported_id = None
+    if correctionlib_only:
+        needs_components = any(dict(cfg["validation"], **comparison.get("validation", {})).get("nminus1_efficiencies", False)
+                               for comparison in cfg["comparisons"].values())
+        exported_id = load_exported_wps(id_correctionlib, base, cfg, correction_lib, needs_components)
     artifacts = {"correction_lib": correction_lib}
     for source, item in load_reference_recipes(cfg.get("validation", {}).get("reference_sources"), config_path.parent).items():
         artifacts[f"reference/{source}"] = item["path"]
@@ -45,8 +53,16 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
     saved = output / "resolved_config.yaml"
     if saved.exists():
         previous, current = yaml.safe_load(saved.read_text()), deepcopy(resolved)
+        same_export = (correctionlib_only and previous.get("artifacts", {}).get("id_correctionlib")
+                       == current["artifacts"].get("id_correctionlib"))
         # Presentation changes can redraw cached evaluation data in the same directory.
         for settings in (previous, current):
+            if same_export:
+                # The same exported ID remains authoritative when dropping the training cross-check.
+                settings["paths"].pop("training_dir", None)
+                for source in cfg["wp_sources"]:
+                    for region in regions:
+                        settings["artifacts"].pop(f"{source}/{region}", None)
             # Export recipes do not change a plot; an applied export is fingerprinted above.
             settings["configuration"].pop("correctionlib", None)
             for field in ("cut_distributions", "nminus1_efficiencies"):
@@ -117,6 +133,7 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
                                plot_style=plot_style,
                                id_requirement=cfg.get("correctionlib", {}).get("requirement"),
                                id_correctionlib=artifacts.get("id_correctionlib"),
+                               exported_id=exported_id,
                                label=comparison.get("label", name), **validation)
     return str(output)
 
@@ -127,9 +144,9 @@ def main():
     parser.add_argument("--outputdir", required=True)
     parser.add_argument("--inputdir", help="Independent sample folders; defaults to base_config inputdir")
     parser.add_argument("--prepared-dir", help="Existing held-out data; defaults to base_config storedir")
-    parser.add_argument("--training-dir", help="Completed WP directory; defaults to base_config training outputdir")
+    parser.add_argument("--training-dir", help="WP directory; omit with --id-correctionlib to use only the exported ID")
     parser.add_argument("--correction-lib", help="Completed correction JSON; defaults to base_config correction_lib")
-    parser.add_argument("--id-correctionlib", help="Full ID JSON: check equivalence and plot its raw-input decisions")
+    parser.add_argument("--id-correctionlib", help="Full ID JSON; --training-dir optionally enables the training-WP cross-check")
     parser.add_argument("--steps", nargs="+", choices=("prepare", "plot"), default=["prepare", "plot"])
     args = parser.parse_args()
     run(args.config, args.outputdir, args.inputdir, args.prepared_dir, args.training_dir,

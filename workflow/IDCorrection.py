@@ -155,13 +155,19 @@ def coefficient_expression(correction, eta):
     return "(" + "+".join(terms) + ")"
 
 
-def build_correction_set(base, validation, calibration, wps_by_region):
+def id_expression_compiler(base, validation, calibration):
+    """Use the same raw-input feature expressions for export and diagnostic labels."""
     preparation = base["workflow"]["InspectDistribution"]
     compiler = Expressions(preparation["input_columns"])
     for correction in calibration["corrections"]:
         compiler.symbols[correction["name"]] = coefficient_expression(correction, compiler.symbols["eta"])
     compiler.define(preparation.get("define_variable", {}))
     compiler.define(validation.get("validation", {}).get("define_variable", {}))
+    return compiler
+
+
+def build_correction_set(base, validation, calibration, wps_by_region):
+    compiler = id_expression_compiler(base, validation, calibration)
     settings = validation["correctionlib"]
     requirement = compiler.compile(settings["requirement"])
     signatures = [{(source, wp.name) for source, wps in sources.items() for wp in wps}
