@@ -294,8 +294,8 @@ workflow:
           binning: [0, 0.2, 20]
     bound_quantiles: [0.001, 0.99]
   ValidateID:
-    # Repeat the efficiency plots with each variable's cuts removed in turn.
-    nminus1_efficiencies: true
+    # Opt in to repeat the efficiency plots with each variable's cuts removed.
+    nminus1_efficiencies: false
     reference_sources:
       OfflineMapped: '{config_dir}/../ref_wp/offline_electron_winter22.yaml'
     dedicated_wps: true
@@ -309,7 +309,12 @@ workflow:
       pt:
         label: $p_T$ [GeV]
         xscale: log
-        binning: [10, 15, 20, 30, 50, 80, 100, 150, 200, 300, 500, 800, 1200, 2000, 3000, 5000, 10000]
+        binning: &validation_pt_bins [10, 15, 20, 30, 50, 80, 100, 150, 200, 300, 500, 800, 1200, 2000, 3000, 5000, 10000]
+      gen_pt:
+        # ID efficiency of selected reconstructed candidates, binned by matched truth pT.
+        label: Generator $p_T$ [GeV]
+        xscale: log
+        binning: *validation_pt_bins
       eta:
         label: $\eta$
         binning: [-2.5, 2.5, 25]
@@ -322,6 +327,8 @@ workflow:
     connect_sources: [Optimized(Iso), Optimized(noIso)]
     label: DY well-reconstructed prompt/direct-tau vs TT background (status 0,3,5)
 evaluation:
+  # Parallel plot processes (comparison x region); override with validate_id.py --workers.
+  workers: 1
   preparation:
     progress: true
     max_rows_per_sample: 2000000

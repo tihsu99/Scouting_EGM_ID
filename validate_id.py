@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Evaluate existing cut-based WPs with the preparation and validation stages."""
 import argparse
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from copy import deepcopy
 import hashlib
+import multiprocessing
 from pathlib import Path
+import time
 
 import yaml
 
@@ -14,10 +17,26 @@ from workflow.reference_ids import load_reference_recipes, load_correctionlib_re
 from workflow.exported_ids import load_exported_wps
 
 
+def _plot_job(name, arguments, exported_spec=None):
+    """Run one comparison/region without sharing Matplotlib or native ID objects."""
+    import matplotlib
+    matplotlib.use("Agg")
+    started = time.perf_counter()
+    print(f"[plot] Starting {name}", flush=True)
+    if exported_spec is not None:
+        arguments["exported_id"] = load_exported_wps(*exported_spec)
+    ValidateIDAnalysis(**arguments)
+    print(f"[plot] Finished {name} in {time.perf_counter() - started:.1f} s", flush=True)
+
+
 def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=None,
-        correction_lib=None, steps=("prepare", "plot"), id_correctionlib=None):
+        correction_lib=None, steps=("prepare", "plot"), id_correctionlib=None, workers=None):
     config_path = Path(config_path).resolve()
     cfg, base, _ = load_id_config(config_path)
+    workers = cfg.get("workers", 1) if workers is None else workers
+    if isinstance(workers, bool) or not isinstance(workers, int) or workers < 1:
+        raise ValueError("workers must be a positive integer")
+    cfg["workers"] = workers
     for name, overrides in cfg.pop("dataset_overrides", {}).items():
         if name not in cfg["datasets"]:
             raise ValueError(f"Unknown dataset override: {name}")
@@ -34,10 +53,12 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
     regions = cfg.get("regions", preparation["regions"])
     sources = {} if correctionlib_only else configured_wp_sources(base, cfg)
     exported_id = None
+    exported_spec = None
     if correctionlib_only:
         needs_components = any(dict(cfg["validation"], **comparison.get("validation", {})).get("nminus1_efficiencies", False)
                                for comparison in cfg["comparisons"].values())
-        exported_id = load_exported_wps(id_correctionlib, base, cfg, correction_lib, needs_components)
+        exported_spec = (id_correctionlib, base, cfg, correction_lib, needs_components)
+        exported_id = load_exported_wps(*exported_spec)
     artifacts = {"correction_lib": correction_lib}
     for source, item in load_reference_recipes(cfg.get("validation", {}).get("reference_sources"), config_path.parent).items():
         artifacts[f"reference/{source}"] = item["path"]
@@ -62,6 +83,8 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
                        == current["artifacts"].get("id_correctionlib"))
         # Presentation changes can redraw cached evaluation data in the same directory.
         for settings in (previous, current):
+            # Process count does not change candidates, weights or ID decisions.
+            settings["configuration"].pop("workers", None)
             if same_export:
                 # The same exported ID remains authoritative when dropping the training cross-check.
                 settings["paths"].pop("training_dir", None)
@@ -70,7 +93,7 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
                         settings["artifacts"].pop(f"{source}/{region}", None)
             # Export recipes do not change a plot; an applied export is fingerprinted above.
             settings["configuration"].pop("correctionlib", None)
-            for field in ("cut_distributions", "nminus1_efficiencies"):
+            for field in ("cut_distributions", "nminus1_efficiencies", "monitor_eff"):
                 settings["configuration"].get("validation", {}).pop(field, None)
                 for comparison in settings["configuration"].get("comparisons", {}).values():
                     comparison.get("validation", {}).pop(field, None)
@@ -135,6 +158,7 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
                     raise FileNotFoundError(f"Missing validation table for {name}: {path}. {recovery}")
 
     if "plot" in steps:
+        jobs = []
         for name, comparison in cfg["comparisons"].items():
             selected = {key: dict(datasets[key], is_signal=key == comparison["signal"])
                         for key in [comparison["signal"], *comparison["backgrounds"]]}
@@ -143,15 +167,40 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
                 if key in plot_style:
                     plot_style[key] = plot_style[key].format(comparison=name, **paths)
             validation = dict(cfg["validation"], **comparison.get("validation", {}))
-            ValidateIDAnalysis(inputdir=paths["prepared_dir"], outputdir=str(output / name),
+            arguments = dict(inputdir=paths["prepared_dir"], outputdir=str(output / name),
                                config_dir=str(config_path.parent),
-                               datasets=selected, regions=regions, wp_sources=sources,
+                               datasets=selected, wp_sources=sources,
                                region_definition=base["region_definition"],
                                plot_style=plot_style,
                                id_requirement=cfg.get("correctionlib", {}).get("requirement"),
                                id_correctionlib=artifacts.get("id_correctionlib"),
-                               exported_id=exported_id,
                                label=comparison.get("label", name), **validation)
+            jobs.extend((f"{name}/{region}", dict(arguments, regions=[region])) for region in regions)
+        active_workers = min(workers, len(jobs))
+        print(f"[plot] {len(jobs)} comparison/region jobs; {active_workers} worker(s)", flush=True)
+        if active_workers > 1:
+            roc_targets = set()
+            for name, arguments in jobs:
+                style = arguments["plot_style"]
+                target = (str(Path(style.get("roc_outputdir", Path(arguments["outputdir"]) / arguments["regions"][0])).resolve()),
+                          style.get("roc_filename_prefix", ""), arguments["regions"][0])
+                if target in roc_targets:
+                    raise ValueError(f"Parallel ROC outputs overlap for {name}; use distinct roc_outputdir "
+                                     "or roc_filename_prefix values, e.g. '{comparison}_'")
+                roc_targets.add(target)
+            # Spawn avoids inheriting PyArrow/Matplotlib thread state from preparation.
+            with ProcessPoolExecutor(max_workers=active_workers, mp_context=multiprocessing.get_context("spawn")) as pool:
+                futures = {pool.submit(_plot_job, name, arguments, exported_spec): name for name, arguments in jobs}
+                for future in as_completed(futures):
+                    try:
+                        future.result()
+                    except Exception as error:
+                        for pending in futures:
+                            pending.cancel()
+                        raise RuntimeError(f"Validation plotting failed for {futures[future]}: {error}") from error
+        else:
+            for name, arguments in jobs:
+                _plot_job(name, dict(arguments, exported_id=exported_id))
     return str(output)
 
 
@@ -166,9 +215,10 @@ def main():
     parser.add_argument("--correction-lib", help="Completed correction JSON; defaults to base_config correction_lib")
     parser.add_argument("--id-correctionlib", help="Full ID JSON; --training-dir optionally enables the training-WP cross-check")
     parser.add_argument("--steps", nargs="+", choices=("prepare", "plot"), default=["prepare", "plot"])
+    parser.add_argument("--workers", type=int, help="Plot processes, one per comparison/region; defaults to YAML workers or 1")
     args = parser.parse_args()
     run(args.config, args.outputdir, args.inputdir, args.prepared_dir, args.training_dir,
-        args.correction_lib, args.steps, args.id_correctionlib)
+        args.correction_lib, args.steps, args.id_correctionlib, args.workers)
 
 
 if __name__ == "__main__":
