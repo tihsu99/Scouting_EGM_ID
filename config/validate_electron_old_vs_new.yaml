@@ -27,7 +27,7 @@ validation:
   reference_sources: {}
   correctionlib_references:
     NewID:
-      path: /eos/user/t/tihsu/dataset/scouting_id/electron/ID/export_hcal_pt2/scouting_id.json.gz
+      path: /eos/user/t/tihsu/dataset/scouting_id/electron/ID_refit/scouting_id.json.gz
       prefix: Iso/
       labels:
         WP70: New ID WP70
