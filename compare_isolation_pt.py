@@ -13,7 +13,7 @@ import pandas as pd
 import yaml
 
 from workflow.data import edges, event_split, load_samples, training_weights
-from workflow.DeriveEffectiveArea import binned_profile, fit_and_plot
+from workflow.DeriveEffectiveArea import binned_profile, fit_and_plot, parse_fitted_function
 from workflow.exported_ids import read_json
 from workflow.InspectDistribution import apply_corrections, define_variables
 from workflow.plotting import add_legend, configure_style, save_plot
@@ -27,6 +27,15 @@ def applied_coefficient(name, values, definitions):
     return frame[name].to_numpy()
 
 
+def relocate_config_paths(value, config_dir):
+    """Keep config-relative references valid in the emitted candidate ID recipe."""
+    if isinstance(value, dict):
+        return {key: relocate_config_paths(item, config_dir) for key, item in value.items()}
+    if isinstance(value, list):
+        return [relocate_config_paths(item, config_dir) for item in value]
+    return value.replace("{config_dir}", str(config_dir)) if isinstance(value, str) else value
+
+
 def compare_profiles(current, candidate, cfg, base, output):
     bins, style = edges(cfg["pt_binning"]), cfg.get("plot_style")
     configure_style(style)
@@ -37,8 +46,9 @@ def compare_profiles(current, candidate, cfg, base, output):
         selected = current.eval(definition["requirement"]).to_numpy(dtype=bool)
         for variable, options in cfg["observables"].items():
             fig, axes = plt.subplots(2, 1, sharex=True)
-            for label, frame, marker, color in (("Current", current, "s", "#D55E00"),
-                                                ("Zprime refit", candidate, "o", "#0072B2")):
+            labels = cfg.get("comparison_labels", {})
+            for label, frame, marker, color in ((labels.get("current", "Existing calibration"), current, "s", "#D55E00"),
+                                                (labels.get("candidate", "Zprime refit"), candidate, "o", "#0072B2")):
                 subset = frame.loc[selected]
                 for axis, quantity, values in ((axes[0], "absolute", subset[variable]),
                                                (axes[1], "relative", subset[variable] / subset.eval(cfg["relative_denominator"]))):
@@ -62,18 +72,32 @@ def compare_profiles(current, candidate, cfg, base, output):
 def run(config_path, inputdir, correction_lib, outputdir):
     config_path, correction_lib = Path(config_path).resolve(), Path(correction_lib).resolve()
     cfg = yaml.safe_load(config_path.read_text())
-    evaluation, base, _ = load_id_config(config_path.parent / cfg["base_config"])
+    evaluation, base, base_path = load_id_config(config_path.parent / cfg["base_config"])
     dataset = evaluation["datasets"][cfg["dataset"]]
     definitions = base["workflow"]["InspectDistribution"]["define_variable"]
+    candidate_definitions = dict(definitions, **cfg.get("candidate_definitions", {}))
     recipes = base["workflow"]["DeriveEffectiveArea"]["EffectiveArea"]
     payload = read_json(correction_lib)
     original = {item["name"]: item for item in payload["corrections"]}
     bins = edges(cfg["pt_binning"])
-    for name in cfg["fits"]:
+    fit_options = (dict.fromkeys(cfg["fits"], {}) if isinstance(cfg["fits"], list) else cfg["fits"])
+    fits, targets = {}, set()
+    for name, options in fit_options.items():
         if name not in original or name not in recipes:
             raise ValueError(f"Missing calibration coefficient or pipeline fit recipe: {name}")
-        if recipes[name]["x"] != "pt" or recipes[name]["y_type"].lower() == "none":
+        spec = dict(recipes[name], **options)
+        if spec["x"] != "pt" or spec["y_type"].lower() == "none":
             raise ValueError(f"{name}: this comparison requires a binned pT fit")
+        parameters = parse_fitted_function(spec["fitted_func"])[1]
+        if len(parameters) > 2 and "coefficients" not in spec:
+            raise ValueError(f"{name}: a higher-order fit needs an explicit coefficients mapping")
+        coefficients = spec.get("coefficients", {name: spec.get("coefficient", "A1")})
+        if not coefficients or set(coefficients.values()) - set(parameters):
+            raise ValueError(f"{name}: coefficients must map correction names to fitted parameters")
+        if targets.intersection(coefficients):
+            raise ValueError("Multiple fits cannot write the same correction coefficient")
+        targets.update(coefficients)
+        fits[name] = (spec, coefficients)
     output = Path(outputdir).resolve()
     if output.exists() and any(output.iterdir()):
         raise FileExistsError(f"Use a new output directory: {output}")
@@ -101,9 +125,8 @@ def run(config_path, inputdir, correction_lib, outputdir):
         define_variables(frame, definitions)
     results, fit_profiles = [], []
     candidate_payload = deepcopy(payload)
-    for name in cfg["fits"]:
-        spec = recipes[name]
-        values, eta_bins = [], spec["eta_bins"]
+    for name, (spec, coefficients) in fits.items():
+        values, eta_bins = {key: [] for key in coefficients}, spec["eta_bins"]
         for low, high in zip(eta_bins[:-1], eta_bins[1:]):
             mask = ((train.eta.abs() >= low) & (train.eta.abs() < high)
                     & (train.pt >= bins[0]) & (train.pt < bins[-1]))
@@ -113,38 +136,54 @@ def run(config_path, inputdir, correction_lib, outputdir):
             y = subset.eval(spec["y"]).to_numpy()
             old_term = binned_profile(subset.pt, subset[name], subset.calibration_weight, bins, "mean",
                                       cfg["min_entries_per_bin"])
+            style = dict(cfg.get("plot_style") or {})
+            style["fit_labels"] = dict(style.get("fit_labels", {}), **spec.get("fit_labels", {}))
             result = fit_and_plot((low, high, subset.pt.to_numpy(), y, "pt", spec["y"], str(output / "fits"),
                 spec["fitted_func"], name, spec["y_type"], bins, spec["x_title"], spec["y_title"], spec["title"],
-                subset.calibration_weight.to_numpy(), spec.get("coefficient", "A1")),
-                cfg.get("plot_style"), cfg["min_entries_per_bin"],
+                subset.calibration_weight.to_numpy(), next(iter(coefficients.values()))),
+                style, cfg["min_entries_per_bin"],
                 reference=dict(x=old_term.x, y=old_term.value * old_term.x,
-                               label="Current applied pT subtraction (no intercept)"))
-            values.append(result["value"])
-            old = subset[name].to_numpy()
-            new = float(applied_coefficient(name, result["value"], definitions)[0])
-            constant = np.allclose(old, old[0], rtol=1e-12, atol=0)
-            results.append(dict(coefficient=name, **result, current_min=float(old.min()), current_max=float(old.max()),
-                                new_applied=new, scale_factor=new / old[0] if constant and old[0] != 0 else np.nan,
-                                delta_if_constant=new - old[0] if constant else np.nan))
+                               label=spec.get("reference_label", f"Existing correctionlib: {name} × pT")))
+            for target, parameter in coefficients.items():
+                value = result["parameters"][parameter]
+                values[target].append(value)
+                old = subset[target].to_numpy() if target in subset else np.zeros(len(subset))
+                new = float(applied_coefficient(target, value, candidate_definitions)[0])
+                constant = np.allclose(old, old[0], rtol=1e-12, atol=0)
+                results.append(dict(result, coefficient=target, parameter=parameter, value=value,
+                                    current_min=float(old.min()), current_max=float(old.max()),
+                                    new_applied=new, scale_factor=new / old[0] if constant and old[0] != 0 else np.nan,
+                                    delta_if_constant=new - old[0] if constant else np.nan))
             profile = binned_profile(subset.pt, y, subset.calibration_weight, bins, spec["y_type"], cfg["min_entries_per_bin"])
             fit_profiles.append(profile.assign(coefficient=name, eta_min=low, eta_max=high))
-        for item in candidate_payload["corrections"]:
-            if item["name"] == name:
-                item["data"] = dict(nodetype="binning", input="eta", edges=list(map(float, eta_bins)), content=values, flow="clamp")
+        for target, fitted_values in values.items():
+            item = next((item for item in candidate_payload["corrections"] if item["name"] == target), None)
+            if item is None:
+                item = dict(name=target, version=1, inputs=deepcopy(original[name]["inputs"]),
+                            output=dict(name=target, type="real"))
+                candidate_payload["corrections"].append(item)
+            item["data"] = dict(nodetype="binning", input="eta", edges=list(map(float, eta_bins)), content=fitted_values, flow="clamp")
     candidate_path = output / "corrections_zprime_pt.json"
     # Validate the complete candidate before writing; all non-refitted corrections stay unchanged.
     correctionlib.CorrectionSet.from_string(json.dumps(candidate_payload))
     candidate_path.write_text(json.dumps(candidate_payload, indent=2) + "\n")
+    candidate_recipe = dict(shared={key: deepcopy(value) for key, value in base.items() if key != "workflow"},
+                            workflow=deepcopy(base["workflow"]), evaluation=deepcopy(evaluation))
+    candidate_recipe["workflow"]["InspectDistribution"]["define_variable"] = candidate_definitions
+    candidate_recipe["workflow"]["InspectDistribution"]["correction_lib"] = str(candidate_path)
+    candidate_config = output / "candidate_id.yaml"
+    candidate_config.write_text(yaml.safe_dump(relocate_config_paths(candidate_recipe, base_path.parent), sort_keys=False))
     pd.DataFrame(results).to_csv(output / "coefficient_comparison.csv", index=False)
     pd.concat(fit_profiles, ignore_index=True).to_csv(output / "fit_profiles.csv", index=False)
     candidate = valid.copy()
     apply_corrections(candidate, str(candidate_path))
-    define_variables(candidate, definitions)
+    define_variables(candidate, candidate_definitions)
     profiles = compare_profiles(valid, candidate, cfg, base, output)
     report = dict(loading=loading, train_rows=len(train), heldout_rows=len(valid),
                   fit_parameters="Unweighted fit to populated profile bins; errors are fit covariance errors",
                   below_minimum_profile_bins=int(profiles.value.isna().sum()),
                   candidate_calibration=str(candidate_path),
+                  candidate_id_config=str(candidate_config),
                   full_id_updated=False)
     (output / "summary.json").write_text(json.dumps(report, indent=2) + "\n")
     print(pd.DataFrame(results)[["coefficient", "eta_min", "eta_max", "current_min", "current_max", "new_applied", "scale_factor"]].to_string(index=False))

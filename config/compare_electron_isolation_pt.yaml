@@ -16,6 +16,9 @@ preparation:
   progress: true
   batch_size: 200000
 plot_style:
+  fit_labels:
+    profile: 'Zprime: measured 95th percentile'
+    fit: 'Zprime: new linear fit'
   formats: [pdf, png]
   rc_params:
     figure.figsize: [10, 8]

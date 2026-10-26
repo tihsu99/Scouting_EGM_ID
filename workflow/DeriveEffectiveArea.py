@@ -72,6 +72,7 @@ def fit_and_plot(args, plot_style=None, min_entries=1, reference=None):
      plotdir, fitted_func_str, var_name, y_type, x_bins,
      x_title, y_title, title, weights, coefficient) = args
     configure_style(plot_style)
+    labels = (plot_style or {}).get("fit_labels", {})
 
     if len(x_sel) == 0:
         print(f"⚠️ No entries in η ∈ [{eta_min}, {eta_max})")
@@ -100,18 +101,18 @@ def fit_and_plot(args, plot_style=None, min_entries=1, reference=None):
     # --- Plot ---
     fig, ax = plt.subplots()
     if y_type.lower() == "none":
-        ax.scatter(x_sel, y_sel, s=5, alpha=0.4, label="Data")
+        ax.scatter(x_sel, y_sel, s=5, alpha=0.4, label=labels.get("profile", "Data"))
     elif y_type.lower() == "mean":
-        ax.errorbar(x_fit_data, y_fit_data, fmt="o", label="Profile mean")
+        ax.errorbar(x_fit_data, y_fit_data, fmt="o", label=labels.get("profile", "Profile mean"))
     elif "contour" in y_type.lower():
         quantile_level = int(y_type.lower().replace("contour", ""))
-        ax.plot(x_fit_data, y_fit_data, "o", label=f"Quantile {quantile_level}%")
+        ax.plot(x_fit_data, y_fit_data, "o", label=labels.get("profile", f"Quantile {quantile_level}%"))
     else:
         raise ValueError(f"Unknown plot type: {y_type}")
 
     # Fit line
     x_fit = np.linspace(np.nanmin(x_fit_data), np.nanmax(x_fit_data), 300)
-    ax.plot(x_fit, func(x_fit, *popt), color="red", label="Fit")
+    ax.plot(x_fit, func(x_fit, *popt), color="red", label=labels.get("fit", "Fit"))
     if reference is not None:
         ax.plot(reference["x"], reference["y"], color="#D55E00", linestyle="--", label=reference["label"])
 
@@ -131,6 +132,7 @@ def fit_and_plot(args, plot_style=None, min_entries=1, reference=None):
     print(f"✅ Saved plot: {outfile}")
     return {"value": float(popt[params.index(coefficient)]), "eta_min": eta_min, "eta_max": eta_max,
             "parameters": dict(zip(params, popt.tolist())), "errors": dict(zip(params, perr.tolist())),
+            "parameter_order": params, "covariance": pcov.tolist(),
             "fit_bins": len(x_fit_data), "entries": len(x_sel)}
 
 
