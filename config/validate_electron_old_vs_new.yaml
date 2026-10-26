@@ -1,0 +1,49 @@
+# Compare complete IDs on identical events using each JSON's own calibration.
+# --id-correctionlib supplies the old ID; the new ID path is configured below.
+base_config: electron_pipeline.yaml
+# Match the refit's train_ratio, random_seed and split_columns inherited from the pipeline.
+dataset_overrides:
+  Zprime:
+    validation_split: heldout
+wp_sources:
+  Iso:
+    path: '{training_dir}/{region}/CutBased_WPs_Iso_TMVA_seq.json'
+    isolation_denominator: none
+    labels:
+      WP70: Old ID WP70
+      WP80: Old ID WP80
+      WP90: Old ID WP90
+      WP95: Old ID WP95
+  Default:
+    path: '{config_dir}/../ref_wp/default_{region}.json'
+    variable_map:
+      relecalIso: relecalIso_E
+      relhcalIso: relhcalIso_E
+      reltrackIso: reltrackIso_E
+    labels:
+      ScoutingElectronRecommendv1: Default Recommend
+      ScoutingElectronCustomizev1: Default AXOL1TL
+validation:
+  reference_sources: {}
+  correctionlib_references:
+    NewID:
+      path: /eos/user/t/tihsu/dataset/scouting_id/electron/ID/export_hcal_pt2/scouting_id.json.gz
+      prefix: Iso/
+      labels:
+        WP70: New ID WP70
+        WP80: New ID WP80
+        WP90: New ID WP90
+        WP95: New ID WP95
+  # Both sides are evaluated as full IDs in this comparison.
+  nminus1_efficiencies: false
+  cut_distributions: {}
+  connect_sources: [Iso, NewID]
+plot_style:
+  wp_label_format: '{label}'
+  source_markers: {Iso: o, NewID: o, Default: s}
+  source_fillstyles: {Iso: none, NewID: full, Default: full}
+  wp_color_indices:
+    Iso: {WP70: 0, WP80: 1, WP90: 2, WP95: 3}
+    NewID: {WP70: 0, WP80: 1, WP90: 2, WP95: 3}
+    Default: {ScoutingElectronRecommendv1: 4, ScoutingElectronCustomizev1: 5}
+  composition: {enabled: false}

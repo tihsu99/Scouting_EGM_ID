@@ -18,6 +18,10 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
         correction_lib=None, steps=("prepare", "plot"), id_correctionlib=None):
     config_path = Path(config_path).resolve()
     cfg, base, _ = load_id_config(config_path)
+    for name, overrides in cfg.pop("dataset_overrides", {}).items():
+        if name not in cfg["datasets"]:
+            raise ValueError(f"Unknown dataset override: {name}")
+        cfg["datasets"][name].update(overrides)
     preparation = deepcopy(base["workflow"]["InspectDistribution"])
     correctionlib_only = bool(id_correctionlib and training_dir is None)
     prepared_root = prepared_dir or preparation.get("storedir")
