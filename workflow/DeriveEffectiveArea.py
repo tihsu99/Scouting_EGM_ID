@@ -37,8 +37,37 @@ def parse_fitted_function(fitted_func_str):
 def linear_func(x, A, b):
     return A * x + b
 
+
+def binned_profile(x, y, weights, bins, y_type, min_entries=1):
+    """Use the calibration's weighted mean/quantile convention and retain empty bins."""
+    if isinstance(min_entries, bool) or not isinstance(min_entries, int) or min_entries < 1:
+        raise ValueError("min_entries must be a positive integer")
+    kind = y_type.lower()
+    if kind != "mean" and not re.fullmatch(r"contour(?:[0-9]|[1-9][0-9]|100)", kind):
+        raise ValueError(f"Unknown profile type: {y_type}")
+    x, y, weights = (np.asarray(values) for values in (x, y, weights))
+    if (weights < 0).any():
+        raise ValueError("Calibration profiles require nonnegative weights")
+    finite = np.isfinite(x) & np.isfinite(y) & np.isfinite(weights) & (weights > 0)
+    rows = []
+    for low, high in zip(bins[:-1], bins[1:]):
+        mask = finite & (x >= low) & (x < high)
+        values, w = y[mask], weights[mask]
+        value = np.nan
+        if len(values) >= min_entries:
+            if kind == "mean":
+                value = np.average(values, weights=w)
+            else:
+                order = np.argsort(values)
+                values, w = values[order], w[order]
+                positions = (np.cumsum(w) - 0.5 * w) / w.sum()
+                value = np.interp(int(kind.replace("contour", "")) / 100, positions, values)
+        rows.append(dict(x_low=low, x_high=high, x=(low + high) / 2,
+                         value=value, entries=len(values), sumw=w.sum()))
+    return pd.DataFrame(rows)
+
 # === Parallel fit and plot ===
-def fit_and_plot(args, plot_style=None):
+def fit_and_plot(args, plot_style=None, min_entries=1, reference=None):
     (eta_min, eta_max, x_sel, y_sel, x_expr, y_expr,
      plotdir, fitted_func_str, var_name, y_type, x_bins,
      x_title, y_title, title, weights, coefficient) = args
@@ -54,29 +83,10 @@ def fit_and_plot(args, plot_style=None):
         x_fit_data = x_sel
         y_fit_data = y_sel
     else:
-        # bin x for profiling
-        bins = x_bins
-        centers = 0.5 * (bins[1:] + bins[:-1])
-        y_fit_data = np.zeros_like(centers)
-        for i in range(len(bins)-1):
-            mask = (x_sel >= bins[i]) & (x_sel < bins[i+1])
-            if np.any(mask) and weights[mask].sum() > 0:
-                if y_type.lower() == "mean":
-                    y_fit_data[i] = np.average(y_sel[mask], weights=weights[mask])
-                elif "contour" in y_type.lower():
-                    quantile_level = int(y_type.lower().replace("contour", ""))/100
-                    order = np.argsort(y_sel[mask])
-                    values, w = y_sel[mask][order], weights[mask][order]
-                    positions = (np.cumsum(w) - 0.5 * w) / w.sum()
-                    y_fit_data[i] = np.interp(quantile_level, positions, values)
-                else:
-                    raise ValueError(f"Unknown plot type: {y_type}")
-            else:
-                y_fit_data[i] = np.nan
-        # remove bins with nan
-        mask_valid = ~np.isnan(y_fit_data)
-        x_fit_data = centers[mask_valid]
-        y_fit_data = y_fit_data[mask_valid]
+        profile = binned_profile(x_sel, y_sel, weights, x_bins, y_type, min_entries)
+        populated = profile.loc[np.isfinite(profile.value)]
+        x_fit_data = populated.x.to_numpy()
+        y_fit_data = populated.value.to_numpy()
 
     # --- Fit function ---
     func, params, expr = parse_fitted_function(fitted_func_str)
@@ -102,6 +112,8 @@ def fit_and_plot(args, plot_style=None):
     # Fit line
     x_fit = np.linspace(np.nanmin(x_fit_data), np.nanmax(x_fit_data), 300)
     ax.plot(x_fit, func(x_fit, *popt), color="red", label="Fit")
+    if reference is not None:
+        ax.plot(reference["x"], reference["y"], color="#D55E00", linestyle="--", label=reference["label"])
 
     ax.set_xlabel(x_title)
     ax.set_ylabel(y_title)

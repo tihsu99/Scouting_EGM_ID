@@ -1,0 +1,28 @@
+# Refit only the pT terms; retain the supplied calibration's EA and H/E terms.
+base_config: electron_pipeline.yaml
+dataset: Zprime
+pt_binning: [20, 3000, 40]
+min_entries_per_bin: 100
+# These names inherit their expressions, eta bins and 95% quantile from the pipeline.
+fits: [IE_pt, IH_pt]
+# The ID uses absolute calo isolation. The /pt panels are diagnostic only.
+observables:
+  ecalIso_calibrated: {label: "Corrected ECAL\nisolation [GeV]"}
+  hcalIso_calibrated: {label: "Corrected HCAL\nisolation [GeV]"}
+  caloIso_calibrated: {label: "Corrected ECAL + HCAL\nisolation [GeV]"}
+relative_denominator: pt
+profile: contour95
+preparation:
+  progress: true
+  batch_size: 200000
+plot_style:
+  formats: [pdf, png]
+  rc_params:
+    figure.figsize: [10, 8]
+    font.size: 18
+    legend.fontsize: 12
+    legend.title_fontsize: 12
+  legend:
+    loc: upper left
+    frameon: false
+  cms_label: {label: Preliminary, data: false, com: 13.6, loc: 0, fontsize: 18}
