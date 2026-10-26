@@ -20,6 +20,25 @@ candidate_definitions:
 comparison_labels:
   current: Existing calibration
   candidate: HCAL linear + quadratic refit
+# Diagnostic fits never replace the reco-pT coefficients exported above.
+# Both axes use the same selected Zprime events and event-level train/held-out split.
+profile_diagnostics:
+  IH_pt:
+    observable: hcalIso_calibrated
+    label: "HCAL isolation after\npileup subtraction [GeV]"
+    figsize: [10, 10]
+    axes:
+      pt: {label: 'Reco electron $p_T$ [GeV]'}
+      gen_pt: {label: 'Matched generator electron $p_T$ [GeV]'}
+    models:
+      linear:
+        function: y = A1*x + A2
+        label: 'Linear fit: a x + c'
+        color: '#D55E00'
+      quadratic:
+        function: y = A1*x + A2*x**2 + A3
+        label: 'Quadratic fit: a x + b x² + c'
+        color: '#009E73'
 observables:
   ecalIso_calibrated: {label: "Corrected ECAL\nisolation [GeV]"}
   hcalIso_calibrated: {label: "Corrected HCAL\nisolation [GeV]"}

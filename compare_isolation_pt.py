@@ -69,6 +69,94 @@ def compare_profiles(current, candidate, cfg, base, output):
     return table
 
 
+def profile_diagnostics(train, valid, candidate, cfg, fits, output):
+    """Compare profile shapes on alternative axes without exporting their fit coefficients."""
+    profiles, results = [], []
+    for name, options in cfg.get("profile_diagnostics", {}).items():
+        spec = fits[name][0]
+        observable = options["observable"]
+        for axis, axis_options in options["axes"].items():
+            bins = edges(axis_options.get("binning", cfg["pt_binning"]))
+            fit_range = spec.get("fit_range") or [bins[0], bins[-1]]
+            directory = output / "diagnostics" / name / axis
+            for low, high in zip(spec["eta_bins"][:-1], spec["eta_bins"][1:]):
+                masks = [((frame.eta.abs() >= low) & (frame.eta.abs() < high)
+                          & (frame.eval(spec["requirement"]) if spec.get("requirement") else True))
+                         for frame in (train, valid)]
+                training, heldout = train.loc[masks[0]], valid.loc[masks[1]]
+                updated = candidate.loc[masks[1]]
+                measured = {}
+                for stage, frame, expression, split in (
+                        ("pileup_only_train", training, spec["y"], "train"),
+                        ("pileup_only_heldout", heldout, spec["y"], "heldout"),
+                        ("current_corrected", heldout, observable, "heldout"),
+                        ("candidate_corrected", updated, observable, "heldout")):
+                    profile = binned_profile(frame.eval(axis), frame.eval(expression), frame.calibration_weight,
+                                             bins, spec["y_type"], cfg["min_entries_per_bin"])
+                    profile["within_fit_range"] = profile.x.between(*fit_range)
+                    measured[stage] = profile
+                    profiles.append(profile.assign(coefficient=name, axis=axis, stage=stage, split=split,
+                                                   expression=expression, eta_min=low, eta_max=high))
+
+                # Native calibration application above still uses the configured reco inputs.
+                style = dict(cfg.get("plot_style") or {})
+                configure_style(style)
+                fig, axes = plt.subplots(2, 1, sharex=True, figsize=options.get("figsize"))
+                quantile = (spec["y_type"].replace("contour", "") + "th percentile"
+                            if spec["y_type"].startswith("contour") else "Mean")
+                for stage, label, marker, color in (("pileup_only_train", "Training", "o", "0.5"),
+                                                   ("pileup_only_heldout", "Held-out", "s", "#0072B2")):
+                    profile = measured[stage]
+                    axes[0].plot(profile.x, profile.value, linestyle="none", marker=marker,
+                                 color=color, fillstyle="none" if stage.endswith("train") else "full",
+                                 label=f"{label}: {quantile}")
+                for model, model_options in options["models"].items():
+                    formula = model_options["function"]
+                    function, parameters, _ = parse_fitted_function(formula)
+                    model_style = dict(style, fit_labels={"profile": f"Training: {quantile}", "fit": model_options["label"]})
+                    result = fit_and_plot((low, high, training.eval(axis).to_numpy(), training.eval(spec["y"]).to_numpy(),
+                        axis, spec["y"], str(directory / "fits"), formula, model, spec["y_type"], bins,
+                        axis_options["label"], spec["y_title"], spec["title"],
+                        training.calibration_weight.to_numpy(), parameters[0]),
+                        model_style, cfg["min_entries_per_bin"], fit_range=fit_range)
+                    values = [result["parameters"][parameter] for parameter in parameters]
+                    profile = measured["pileup_only_heldout"]
+                    prediction = function(profile.x.to_numpy(), *values)
+                    scores = {}
+                    for domain, mask in (("fit_range", profile.within_fit_range),
+                                         ("extrapolation", ~profile.within_fit_range)):
+                        included = mask & np.isfinite(profile.value) & np.isfinite(prediction)
+                        residual = profile.value[included].to_numpy() - prediction[included]
+                        scores[f"heldout_bins_{domain}"] = int(included.sum())
+                        scores[f"heldout_rmse_{domain}"] = float(np.sqrt(np.mean(residual**2))) if len(residual) else None
+                    results.append(dict(result, coefficient=name, axis=axis, model=model,
+                                        function=formula, diagnostic_only=True, **scores))
+                    grid = np.linspace(bins[0], bins[-1], 500)
+                    prediction = function(grid, *values)
+                    inside = (grid >= fit_range[0]) & (grid <= fit_range[1])
+                    line, = axes[0].plot(grid, np.where(inside, prediction, np.nan), label=model_options["label"],
+                                         color=model_options.get("color"))
+                    axes[0].plot(grid, np.where(~inside, prediction, np.nan), linestyle="--", color=line.get_color())
+                labels = cfg.get("comparison_labels", {})
+                for stage, label, marker, color in (
+                        ("current_corrected", labels.get("current", "Existing calibration"), "s", "#D55E00"),
+                        ("candidate_corrected", labels.get("candidate", "Zprime refit"), "o", "#0072B2")):
+                    profile = measured[stage]
+                    axes[1].plot(profile.x, profile.value, marker=marker, color=color, label=label)
+                axes[0].set_ylabel(options.get("label", spec["y_title"]))
+                axes[1].set(ylabel=cfg["observables"][observable]["label"], xlabel=axis_options["label"],
+                            xlim=(bins[0], bins[-1]))
+                axes[1].axhline(0, color="0.6", linewidth=.7)
+                add_legend(axes[0], style, title=(f"{cfg['dataset']} | {low:g} < |eta| < {high:g}\n"
+                    f"Fit: {fit_range[0]:g}–{fit_range[1]:g} GeV; dashed: extrapolation"))
+                add_legend(axes[1], style, title=f"Held-out {quantile}\nApplied calibration uses reco pT")
+                save_plot(fig, directory / f"profile_eta_{low}_{high}.pdf", style)
+    if profiles:
+        pd.concat(profiles, ignore_index=True).to_csv(output / "diagnostic_profiles.csv", index=False)
+        (output / "diagnostic_fits.json").write_text(json.dumps(results, indent=2, allow_nan=False) + "\n")
+    return results
+
+
 def run(config_path, inputdir, correction_lib, outputdir):
     config_path, correction_lib = Path(config_path).resolve(), Path(correction_lib).resolve()
     cfg = yaml.safe_load(config_path.read_text())
@@ -98,6 +186,9 @@ def run(config_path, inputdir, correction_lib, outputdir):
             raise ValueError("Multiple fits cannot write the same correction coefficient")
         targets.update(coefficients)
         fits[name] = (spec, coefficients)
+    for name, options in cfg.get("profile_diagnostics", {}).items():
+        if name not in fits or not options.get("axes") or not options.get("models"):
+            raise ValueError(f"{name}: profile diagnostics require a configured fit, axes and models")
     output = Path(outputdir).resolve()
     if output.exists() and any(output.iterdir()):
         raise FileExistsError(f"Use a new output directory: {output}")
@@ -187,14 +278,26 @@ def run(config_path, inputdir, correction_lib, outputdir):
     apply_corrections(candidate, str(candidate_path))
     define_variables(candidate, candidate_definitions)
     profiles = compare_profiles(valid, candidate, cfg, base, output)
+    diagnostics = profile_diagnostics(train, valid, candidate, cfg, fits, output)
     report = dict(loading=loading, train_rows=len(train), heldout_rows=len(valid),
                   fit_parameters="Unweighted fit to populated profile bins; errors are fit covariance errors",
                   below_minimum_profile_bins=int(profiles.value.isna().sum()),
                   candidate_calibration=str(candidate_path),
                   candidate_id_config=str(candidate_config),
                   full_id_updated=False)
+    if diagnostics:
+        report["profile_diagnostics"] = dict(
+            fits=str(output / "diagnostic_fits.json"), profiles=str(output / "diagnostic_profiles.csv"),
+            diagnostic_only=True, calibration_inputs_unchanged=True,
+            metric="Unweighted RMSE [GeV] over populated held-out quantile bins, not a significance test",
+            selection=dataset["requirement"],
+            electron_response_max_relative_pt=preparation.get("electron_response_max_relative_pt"))
     (output / "summary.json").write_text(json.dumps(report, indent=2) + "\n")
     print(pd.DataFrame(results)[["coefficient", "eta_min", "eta_max", "current_min", "current_max", "new_applied", "scale_factor"]].to_string(index=False))
+    if diagnostics:
+        print("Diagnostic fits only; held-out profile RMSE [GeV] (not a significance test):")
+        print(pd.DataFrame(diagnostics)[["axis", "eta_min", "eta_max", "model",
+              "heldout_rmse_fit_range", "heldout_rmse_extrapolation"]].to_string(index=False))
     print(f"Comparison written to {output}")
     return output
 
