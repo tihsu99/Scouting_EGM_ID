@@ -364,6 +364,18 @@ Hollow circles reuse the online colors for Tight/WP70, Medium/WP80, Loose/WP90
 and Veto/WP95. This pairing is visual; compare measured signal efficiency and
 background efficiency in the ROC CSV, including the pT slices.
 
+Electron validation enables `nminus1_efficiencies: true`. It repeats the current
+efficiency plots for every WP variable, removing that variable's window and fixed
+cuts while retaining all other cuts, reference validity requirements, and the same
+pre-ID denominator, weights and monitor bins. The removed variable appears below
+Barrel/Endcap. Outputs are `<comparison>/<region>/nminus1_efficiencies/<variable>/`
+(PDF, PNG and per-bin CSV); the full-ID curves remain in `eff_vs_var/`.
+References supplied only as complete pass/fail evaluators are skipped because
+their individual cuts are unavailable. Set the option to `false` to disable these plots.
+Rerun the same `validate_id.py` command with `--steps plot` and its existing output
+directory to use cached evaluation tables; enabling these diagnostics requires no
+new preparation, training or calibration.
+
 Output layout under the selected output directory:
 
 | Path | Content |

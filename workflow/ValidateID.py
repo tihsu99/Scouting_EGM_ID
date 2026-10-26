@@ -13,7 +13,7 @@ from rich.table import Table
 import matplotlib.colors as mc
 import colorsys
 from workflow.data import edges, efficiency_stats, kinematic_weights
-from workflow.working_points import WP, load_tmva_wp_file, load_configured_wps, pass_fixed_cuts, print_id_table
+from workflow.working_points import WP, load_tmva_wp_file, load_configured_wps, pass_fixed_cuts, print_id_table, cut_bounds
 from workflow.InspectDistribution import define_variables
 from workflow.plotting import (add_legend, configure_style, save_plot, series_panels, composition_panel,
                                resolve_plot_style, wp_color_indices, wp_marker_style)
@@ -418,7 +418,8 @@ class ValidationAnalyzer:
     # ---------------------------
     def plot_efficiency_vs_variables(self, variables: Iterable[str], binning: Dict[str, List[float]],
                                      outdir: str, labels: Optional[Dict[str, str]] = None,
-                                     xscales: Optional[Dict[str, str]] = None) -> None:
+                                     xscales: Optional[Dict[str, str]] = None,
+                                     excluded_variable: Optional[str] = None, cut_label: Optional[str] = None) -> None:
         labels = labels or {}
         overlay_signal = (self.plot_style or {}).get("efficiency_overlay_signal", False)
         per_process = (self.plot_style or {}).get("efficiency_per_process", False) or overlay_signal
@@ -438,7 +439,17 @@ class ValidationAnalyzer:
                 rows = []
                 for source, wps in self.wp_sources.items():
                     for wp in wps:
-                        passed = self._pass_wp(block, wp)
+                        evaluated_wp = wp
+                        if excluded_variable is not None:
+                            fixed = wp.meta.get("fixed_cuts", {})
+                            if excluded_variable not in wp.window_cuts and excluded_variable not in fixed:
+                                continue
+                            # A cached full-ID decision cannot represent N-minus-one.
+                            meta = {key: value for key, value in wp.meta.items() if key != "pass_column"}
+                            meta["fixed_cuts"] = {var: cut for var, cut in fixed.items() if var != excluded_variable}
+                            evaluated_wp = WP(wp.name,
+                                {var: cut for var, cut in wp.window_cuts.items() if var != excluded_variable}, meta)
+                        passed = self._pass_wp(block, evaluated_wp)
                         for category, mask in categories.items():
                             values, cls_w, selected = block.loc[mask, var].to_numpy(), weights[mask], passed[mask]
                             for index, (low, high) in enumerate(zip(b_edges[:-1], b_edges[1:])):
@@ -451,6 +462,12 @@ class ValidationAnalyzer:
                                                  sumw=float(cls_w[inside].sum()),
                                                  pass_sumw=float(cls_w[inside][selected[inside]].sum()),
                                                  sumw2=float(np.square(cls_w[inside]).sum())))
+                                if excluded_variable is not None:
+                                    rows[-1].update(excluded_variable=excluded_variable,
+                                        removed_bounds=json.dumps(cut_bounds(wp, excluded_variable)),
+                                        validity_column=wp.meta.get("valid_column", ""))
+                if not rows:
+                    continue
                 metrics = pd.DataFrame(rows)
                 os.makedirs(outdir, exist_ok=True)
                 metrics.to_csv(os.path.join(outdir, f"eff_region-{reg}_{var}.csv"), index=False)
@@ -483,7 +500,8 @@ class ValidationAnalyzer:
                         axis.set(xlabel=labels.get(var, var), ylabel=ylabel,
                                  ylim=(self.plot_style or {}).get("efficiency_ylim", (0, 1.1)), xscale=xscale)
                         self._annotate_plot(axis, reg, title=title, context=self.label if not per_process else "",
-                                            categories=data.category.unique())
+                                            categories=data.category.unique(),
+                                            selection=f"Removed: {cut_label or excluded_variable}" if excluded_variable else "")
                         if self.processes and not x_errors:
                             axis.text(0, -.10, "Markers offset within bins", transform=axis.transAxes, fontsize="x-small")
                         if overlay_signal:
@@ -535,6 +553,26 @@ class ValidationAnalyzer:
                         else:
                             draw(points, f"per_wp/{source}/{name}/eff_{var}_region-{reg}.png",
                                  title=self._wp_label(source, wp))
+
+    def plot_nminus1_efficiencies(self, monitors, outdir, cut_labels=None):
+        """Remove one variable's bounds, retaining all other cuts and the pre-ID denominator."""
+        if not monitors:
+            return
+        cut_labels = cut_labels or {}
+        variables = dict.fromkeys(variable for wps in self.wp_sources.values() for wp in wps
+                                  for variable in (*wp.window_cuts, *wp.meta.get("fixed_cuts", {})))
+        for source, wps in self.wp_sources.items():
+            for wp in wps:
+                if not wp.window_cuts and not wp.meta.get("fixed_cuts"):
+                    console.print(f"[yellow]N-minus-one efficiencies: skipping {source}/{wp.name}; "
+                                  "individual cut definitions are unavailable[/yellow]")
+        for variable in variables:
+            self.plot_efficiency_vs_variables(
+                variables=monitors, binning={name: spec["binning"] for name, spec in monitors.items()},
+                outdir=os.path.join(outdir, variable),
+                labels={name: spec.get("label", name) for name, spec in monitors.items()},
+                xscales={name: spec.get("xscale", "linear") for name, spec in monitors.items()},
+                excluded_variable=variable, cut_label=cut_labels.get(variable, variable))
 
     def plot_cut_distributions(self, variables, outdir):
         """Overlay each named sample before ID, with single-variable WP efficiencies."""
@@ -696,10 +734,14 @@ def ValidateIDAnalysis(**kwargs):
       define_variable: additional validation features, such as raw I/E for defaults
       connect_sources: sources whose discrete ROC points should be connected
       dedicated_wps: also export one efficiency figure per source/WP
+      nminus1_efficiencies: also draw monitor_eff plots with one variable's cuts removed
     """
     inputdir = kwargs.pop("inputdir")
     regions = kwargs.pop("regions")
     monitor_eff = kwargs.pop("monitor_eff")
+    nminus1_efficiencies = kwargs.pop("nminus1_efficiencies", False)
+    if not isinstance(nminus1_efficiencies, bool):
+        raise ValueError("nminus1_efficiencies must be true or false")
     variables = kwargs.pop("variables")
     pt_regions = kwargs.pop("pt_regions", {})
     requirement = kwargs.pop("requirement", None)
@@ -727,7 +769,7 @@ def ValidateIDAnalysis(**kwargs):
         import correctionlib
         from apply_id import evaluate_id, id_evaluators, id_inputs
         if variables:
-            raise ValueError("Full correctionlib IDs support ROC/efficiency validation, not N-minus-one plots")
+            raise ValueError("Full correctionlib IDs support ROC/efficiency validation, not N-minus-one distributions")
         id_corrections = correctionlib.CorrectionSet.from_file(str(kwargs["id_correctionlib"]))
         if kwargs.get("input_columns") is not None:
             raw_columns = {item.name for correction in id_evaluators(id_corrections).values()
@@ -938,6 +980,10 @@ def ValidateIDAnalysis(**kwargs):
         )
 
         va.plot_cut_distributions(kwargs.get("cut_distributions", {}), os.path.join(reg_out, "cut_distributions"))
+        if nminus1_efficiencies:
+            va.plot_nminus1_efficiencies(
+                monitor_eff, os.path.join(reg_out, "nminus1_efficiencies"),
+                cut_labels={var: cfg.get("label", var) for var, cfg in kwargs.get("cut_distributions", {}).items()})
 
         # N−1 plots (variables)
         nm1_binning = {v: cfg["binning"] for v, cfg in variables.items()}

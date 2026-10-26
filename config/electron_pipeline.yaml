@@ -294,6 +294,8 @@ workflow:
           binning: [0, 0.2, 20]
     bound_quantiles: [0.001, 0.99]
   ValidateID:
+    # Repeat the efficiency plots with each variable's cuts removed in turn.
+    nminus1_efficiencies: true
     reference_sources:
       OfflineMapped: '{config_dir}/../ref_wp/offline_electron_winter22.yaml'
     dedicated_wps: true

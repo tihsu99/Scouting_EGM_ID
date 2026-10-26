@@ -49,7 +49,11 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
         for settings in (previous, current):
             # Export recipes do not change a plot; an applied export is fingerprinted above.
             settings["configuration"].pop("correctionlib", None)
-            settings["configuration"].get("validation", {}).pop("cut_distributions", None)
+            for field in ("cut_distributions", "nminus1_efficiencies"):
+                settings["configuration"].get("validation", {}).pop(field, None)
+                for comparison in settings["configuration"].get("comparisons", {}).values():
+                    comparison.get("validation", {}).pop(field, None)
+                settings["training_configuration"].get("workflow", {}).get("ValidateID", {}).pop(field, None)
             trainer = settings["training_configuration"].get("workflow", {}).get("TrainCutBasedID_TMVA", {})
             for field in ("plot_samples", "cut_plot_variables"):
                 trainer.pop(field, None)

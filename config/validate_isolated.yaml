@@ -70,6 +70,8 @@ wp_sources:
       ScoutingElectronCustomizev1: AXOL1TL
 
 validation:
+  # Repeat monitor_eff plots with each variable's cuts removed in turn.
+  nminus1_efficiencies: true
   reference_sources:
     OfflineMapped: '{config_dir}/../ref_wp/offline_electron_winter22.yaml'
   unit_weights: true
