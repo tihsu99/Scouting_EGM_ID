@@ -1,0 +1,35 @@
+# Jointly refit the HCAL linear and quadratic terms; keep ECAL and EA unchanged.
+base_config: electron_pipeline.yaml
+dataset: Zprime
+pt_binning: [20, 3000, 40]
+min_entries_per_bin: 100
+fits:
+  IH_pt:
+    fitted_func: y = A1*x + A2*x**2 + A3
+    coefficients: {IH_pt: A1, IH_pt2: A2}
+    reference_label: 'Existing correctionlib: HCAL pT subtraction'
+    fit_labels:
+      profile: 'Zprime HCAL: measured 95th percentile'
+      fit: 'Zprime HCAL fit: a pT + b pT² + c'
+# Preserve the jointly fitted signs. Clipping a or b separately changes the fit.
+# The intercept A3 is fitted but is not subtracted, as in the linear calibration.
+candidate_definitions:
+  IH_pt: IH_pt
+  hcalIso_calibrated: hcalIso - IH_EA*`ScoutingRho.fixedGridRhoFastjetAll` - IH_pt*pt - IH_pt2*pt**2
+comparison_labels:
+  current: Existing calibration
+  candidate: HCAL linear + quadratic refit
+observables:
+  ecalIso_calibrated: {label: "Corrected ECAL\nisolation [GeV]"}
+  hcalIso_calibrated: {label: "Corrected HCAL\nisolation [GeV]"}
+  caloIso_calibrated: {label: "Corrected ECAL + HCAL\nisolation [GeV]"}
+relative_denominator: pt
+profile: contour95
+preparation:
+  progress: true
+  batch_size: 200000
+plot_style:
+  formats: [pdf, png]
+  rc_params: {figure.figsize: [10, 8], font.size: 18, legend.fontsize: 12, legend.title_fontsize: 12}
+  legend: {loc: upper left, frameon: false}
+  cms_label: {label: Preliminary, data: false, com: 13.6, loc: 0, fontsize: 18}
