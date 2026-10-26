@@ -15,7 +15,7 @@ import yaml
 from compare_isolation_pt import relocate_config_paths
 from workflow.exported_ids import _expanded_formula, load_exported_wps, read_json
 from workflow.IDCorrection import id_expression_compiler
-from workflow.working_points import load_id_config
+from workflow.working_points import calibration_table_lines, load_id_config
 
 
 def recalibrate_id(config_path, id_correctionlib, correction_lib, candidate_config, outputdir):
@@ -28,9 +28,11 @@ def recalibrate_id(config_path, id_correctionlib, correction_lib, candidate_conf
         raise FileExistsError(f"Use a new output directory: {output}")
 
     # Match the original feature expressions, including calibration, before changing anything.
+    print("Checking the original ID against its YAML and calibration...", flush=True)
     _, templates = load_exported_wps(id_correctionlib, base, config, correction_lib, nminus1=True)
-    old_compiler = id_expression_compiler(base, config, read_json(correction_lib))
-    new_compiler = id_expression_compiler(new_base, candidate, read_json(new_calibration))
+    old_calibration, candidate_calibration = read_json(correction_lib), read_json(new_calibration)
+    old_compiler = id_expression_compiler(base, config, old_calibration)
+    new_compiler = id_expression_compiler(new_base, candidate, candidate_calibration)
     if old_compiler.inputs != new_compiler.inputs:
         raise ValueError("Recalibration must preserve the original raw input definitions")
     if (base["region_definition"] != new_base["region_definition"] or
@@ -41,6 +43,8 @@ def recalibrate_id(config_path, id_correctionlib, correction_lib, candidate_conf
     replacements = {}
     definitions = dict(base["workflow"]["InspectDistribution"].get("define_variable", {}),
                        **config.get("validation", {}).get("define_variable", {}))
+    candidate_definitions = dict(new_base["workflow"]["InspectDistribution"].get("define_variable", {}),
+                                 **candidate.get("validation", {}).get("define_variable", {}))
     for variable in definitions.keys() & new_compiler.symbols.keys():
         old_feature = old_compiler.symbols[variable].replace("e+", "e")
         new_feature = new_compiler.symbols[variable].replace("e+", "e")
@@ -107,7 +111,54 @@ def recalibrate_id(config_path, id_correctionlib, correction_lib, candidate_conf
     (output / "validation.yaml").write_text(yaml.safe_dump(
         relocate_config_paths(validation_config, config_path.parent), sort_keys=False))
     shutil.copyfile(Path(__file__).with_name("apply_id.py"), output / "apply_id.py")
-    print("Updated features: " + ", ".join(sorted({item["variable"] for item in changes})))
+
+    old_coefficients = {item["name"]: item for item in old_calibration["corrections"]}
+    new_coefficients = {item["name"]: item for item in candidate_calibration["corrections"]}
+    changed_coefficients = {name for name in old_coefficients.keys() | new_coefficients.keys()
+                            if old_coefficients.get(name) != new_coefficients.get(name)
+                            or definitions.get(name) != candidate_definitions.get(name)}
+    changed_variables = {item["variable"] for item in changes}
+    shown_definitions = changed_variables | {
+        name for name in definitions.keys() | candidate_definitions.keys()
+        if definitions.get(name) != candidate_definitions.get(name)}
+    report = ["ID recalibration complete", "",
+              f"Original ID (preserved): {artifacts['original_id']}",
+              f"Original calibration: {artifacts['original_calibration']}",
+              f"Candidate calibration: {new_calibration}",
+              f"Candidate recipe: {candidate_config}", "",
+              "Updated working points and cut variables:"]
+    for name in sorted({item["wp"] for item in changes}):
+        variables = sorted({item["variable"] for item in changes if item["wp"] == name})
+        report.append(f"  UPDATED {name}: {', '.join(variables)}")
+    for name in sorted(covered - {item["wp"] for item in changes}):
+        report.append(f"  UNCHANGED {name}")
+    unchanged_variables = {variable for wps in templates.values() for wp in wps
+                           for variable in wp.meta["id_components"]} - changed_variables
+    report.extend(["", "Preserved: all cut thresholds and comparison operators.",
+                   "Preserved: regions, fiducial selection and raw input names.",
+                   "Unchanged cut variables: " + (", ".join(sorted(unchanged_variables)) or "none"),
+                   "Unchanged calibration coefficients: " +
+                   (", ".join(sorted(old_coefficients.keys() - changed_coefficients)) or "none"),
+                   "Added calibration coefficients: " +
+                   (", ".join(sorted(new_coefficients.keys() - old_coefficients.keys())) or "none"),
+                   "Removed calibration coefficients: " +
+                   (", ".join(sorted(old_coefficients.keys() - new_coefficients.keys())) or "none"),
+                   "", "Before/after definitions include affected dependent features."])
+    for label, feature_definitions, coefficients in (("BEFORE", definitions, old_coefficients),
+                                                     ("AFTER", candidate_definitions, new_coefficients)):
+        report.extend(["", label])
+        report.extend(calibration_table_lines(
+            {name: value for name, value in feature_definitions.items() if name in shown_definitions},
+            dict(corrections=[item for name, item in coefficients.items() if name in changed_coefficients]), 12))
+    report.extend(["Values above are the applied coefficients, including configured clipping.",
+                   "Full-precision coefficients remain in the JSON. ID efficiencies must be remeasured.", "",
+                   f"Updated ID: {destination}", f"Validation config: {output / 'validation.yaml'}",
+                   f"Change manifest: {output / 'manifest.json'}",
+                   f"Application helper: {output / 'apply_id.py'}",
+                   f"Saved report: {output / 'recalibration_report.txt'}"])
+    text = "\n".join(report) + "\n"
+    (output / "recalibration_report.txt").write_text(text)
+    print(text, flush=True)
     return destination
 
 
@@ -119,8 +170,8 @@ def main():
     parser.add_argument("--candidate-config", required=True, help="Refit's candidate_id.yaml with the new calibration")
     parser.add_argument("--outputdir", required=True, help="New ID bundle directory")
     args = parser.parse_args()
-    print(recalibrate_id(args.config, args.id_correctionlib, args.correction_lib,
-                         args.candidate_config, args.outputdir))
+    recalibrate_id(args.config, args.id_correctionlib, args.correction_lib,
+                   args.candidate_config, args.outputdir)
 
 
 if __name__ == "__main__":
