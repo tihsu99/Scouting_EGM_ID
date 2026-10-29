@@ -1,0 +1,20 @@
+# Companion to validate_electron_lowpt.yaml: select pT >= 10 GeV instead of >= 5.
+# Rebuild from raw Parquet and reuse the same full ID JSON and embedded calibration.
+# Inherit the pipeline's pT bins and slices starting at 10 GeV.
+base_config: electron_pipeline.yaml
+dataset_overrides:
+  DY:
+    path: []
+    requirement: ((status == 1) | (status == 2)) & (pt >= 10) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.566) & (abs(eta) < 2.5)))
+  TT:
+    path: []
+    requirement: (sample == 'TT') & ((status == 0) | (status == 3) | (status == 5)) & (pt >= 10) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.566) & (abs(eta) < 2.5)))
+  QCD:
+    path: []
+    requirement: ((status == 0) | (status == 3)) & (pt >= 10) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.566) & (abs(eta) < 2.5)))
+  Zprime:
+    path: []
+    requirement: ((status == 1) | (status == 2)) & (pt >= 10) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.566) & (abs(eta) < 2.5)))
+validation:
+  reference_sources: {}
+  correctionlib_references: {}

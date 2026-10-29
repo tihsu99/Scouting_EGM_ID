@@ -1,6 +1,7 @@
 # Rebuild evaluation data from raw Parquet, keeping the existing calibration and WPs.
 # Includes 5-10 GeV; training selections and analysis eta acceptance are unchanged.
 # With --id-correctionlib alone, full-ID efficiencies use its embedded calibration.
+# Use validate_electron_pt10.yaml for the companion pT >= 10 GeV validation.
 base_config: electron_pipeline.yaml
 dataset_overrides:
   DY:
