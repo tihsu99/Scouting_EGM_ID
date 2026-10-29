@@ -10,6 +10,7 @@ import time
 
 import yaml
 
+from apply_id import id_evaluators, id_inputs
 from workflow.InspectDistribution import InspectDistributionAnalysis
 from workflow.ValidateID import ValidateIDAnalysis
 from workflow.working_points import configured_wp_sources, load_id_config
@@ -43,13 +44,14 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
         cfg["datasets"][name].update(overrides)
     preparation = deepcopy(base["workflow"]["InspectDistribution"])
     correctionlib_only = bool(id_correctionlib and training_dir is None)
+    raw_id_only = correctionlib_only and correction_lib is None
     prepared_root = prepared_dir or preparation.get("storedir")
     paths = dict(inputdir=str(Path(inputdir or base["inputdir"]).resolve()),
                  prepared_dir=str(Path(prepared_root or Path(outputdir) / "evaluation_data").resolve()),
                  training_dir=None if correctionlib_only else str(Path(
                      training_dir or base["workflow"]["TrainCutBasedID_TMVA"]["outputdir"]).resolve()),
                  outputdir=str(Path(outputdir).resolve()), config_dir=str(config_path.parent), region="{region}")
-    correction_lib = str(Path(correction_lib or preparation["correction_lib"]).resolve())
+    correction_lib = None if raw_id_only else str(Path(correction_lib or preparation["correction_lib"]).resolve())
     regions = cfg.get("regions", preparation["regions"])
     sources = {} if correctionlib_only else configured_wp_sources(base, cfg)
     exported_id = None
@@ -57,9 +59,22 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
     if correctionlib_only:
         needs_components = any(dict(cfg["validation"], **comparison.get("validation", {})).get("nminus1_efficiencies", False)
                                for comparison in cfg["comparisons"].values())
+        if raw_id_only and needs_components:
+            raise ValueError("N-minus-one feature labels require --correction-lib and the matching feature YAML")
         exported_spec = (id_correctionlib, base, cfg, correction_lib, needs_components)
         exported_id = load_exported_wps(*exported_spec)
-    artifacts = {"correction_lib": correction_lib}
+    if raw_id_only:
+        raw_columns = list(dict.fromkeys([*preparation["input_columns"],
+            *(item.name for wp in id_evaluators(exported_id[0]).values() for item in id_inputs(wp))]))
+        for comparison in cfg["comparisons"].values():
+            validation = dict(cfg["validation"], **comparison.get("validation", {}))
+            missing = set(validation["monitor_eff"]) - set(raw_columns)
+            if missing or validation.get("variables"):
+                raise ValueError("Derived-variable plots require --correction-lib and the matching feature YAML; "
+                                 f"unavailable raw monitors: {sorted(missing)}")
+            comparison.setdefault("validation", {}).update(input_columns=["sample", "weight", *raw_columns],
+                                                           define_variable={}, cut_distributions={})
+    artifacts = {"correction_lib": correction_lib} if correction_lib else {}
     for source, item in load_reference_recipes(cfg.get("validation", {}).get("reference_sources"), config_path.parent).items():
         artifacts[f"reference/{source}"] = item["path"]
     for source, item in load_correctionlib_references(
@@ -118,6 +133,8 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
     shared.update(inputdir=paths["inputdir"], correction_lib=correction_lib, regions=regions,
                   normalization={}, validation_only=True, kinematic_reweighting=None,
                   stitch_binning=None, inspect_variable={})
+    if raw_id_only:
+        shared.update(input_columns=raw_columns, define_variable={})
     datasets = deepcopy(cfg["datasets"])
     used = set()
     for comparison in cfg["comparisons"].values():
@@ -211,7 +228,7 @@ def main():
     parser.add_argument("--prepared-dir", help="Existing held-out data; uses base_config storedir when set, "
                         "otherwise prepares YAML samples under outputdir/evaluation_data")
     parser.add_argument("--training-dir", help="WP directory; omit with --id-correctionlib to use only the exported ID")
-    parser.add_argument("--correction-lib", help="Completed correction JSON; defaults to base_config correction_lib")
+    parser.add_argument("--correction-lib", help="Calibration for derived features; omit with --id-correctionlib for raw-input full-ID plots")
     parser.add_argument("--id-correctionlib", help="Full ID JSON; --training-dir optionally enables the training-WP cross-check")
     parser.add_argument("--steps", nargs="+", choices=("prepare", "plot"), default=["prepare", "plot"])
     parser.add_argument("--workers", type=int, help="Plot processes, one per comparison/region; defaults to YAML workers or 1")

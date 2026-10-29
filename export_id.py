@@ -10,10 +10,48 @@ import shutil
 import correctionlib
 
 from workflow.IDCorrection import build_correction_set
+from workflow.exported_ids import read_json, remove_exported_acceptance
 from workflow.working_points import configured_wp_sources, load_configured_wps, load_id_config, print_id_table
 
 
-def export_id(config_path, outputdir, training_dir=None, correction_lib=None):
+def reexport_existing_id(config_path, outputdir, id_correctionlib):
+    """Preserve both regions' calibrated WPs from an existing bundle."""
+    config_path, original = Path(config_path).resolve(), Path(id_correctionlib).resolve()
+    config, base, base_path = load_id_config(config_path)
+    payload = read_json(original)
+    correctionlib.CorrectionSet.from_string(json.dumps(payload))
+    settings = config["correctionlib"]
+    target_regions = settings["region_definition"]
+    source_regions = {name: settings.get("source_region_definition", base["region_definition"])[name]
+                      for name in target_regions}
+    updated, changes = remove_exported_acceptance(payload, source_regions, target_regions)
+    packed = gzip.compress((json.dumps(updated, indent=2, allow_nan=False) + "\n").encode(), mtime=0)
+    output = Path(outputdir)
+    if output.exists() and any(output.iterdir()):
+        raise FileExistsError(f"ID export already exists in {output}; use a new output directory")
+    manifest = dict(correctionset="scouting_id.json.gz", sha256=hashlib.sha256(packed).hexdigest(),
+                    evaluator="compound", requirement=None, source_regions=source_regions,
+                    regions=target_regions, changes=changes,
+                    working_points=[item["name"] for item in updated["compound_corrections"]],
+                    artifacts={name: dict(path=str(path), sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+                               for name, path in dict(original_id=original, configuration=config_path,
+                                                      base_configuration=base_path).items()})
+    output.mkdir(parents=True, exist_ok=True)
+    destination = output / "scouting_id.json.gz"
+    destination.write_bytes(packed)
+    (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    shutil.copyfile(Path(__file__).with_name("apply_id.py"), output / "apply_id.py")
+    print(f"Preserved the original calibrated cuts for {len(manifest['working_points'])} WPs; "
+          f"removed {len(changes['removed_components'])} acceptance components.")
+    return destination
+
+
+def export_id(config_path, outputdir, training_dir=None, correction_lib=None, id_correctionlib=None):
+    if id_correctionlib is not None:
+        if training_dir is not None or correction_lib is not None:
+            raise ValueError("With --id-correctionlib, calibration and WPs come only from that JSON; "
+                             "omit --training-dir and --correction-lib")
+        return reexport_existing_id(config_path, outputdir, id_correctionlib)
     config_path = Path(config_path).resolve()
     config, base, base_path = load_id_config(config_path)
     preparation = base["workflow"]["InspectDistribution"]
@@ -63,8 +101,9 @@ def main():
     parser.add_argument("--outputdir", required=True)
     parser.add_argument("--training-dir", help="Completed regional WP directory")
     parser.add_argument("--correction-lib", help="Completed calibration JSON")
+    parser.add_argument("--id-correctionlib", help="Existing full ID JSON: preserve its calibration/WPs and remove acceptance cuts")
     args = parser.parse_args()
-    print(export_id(args.config, args.outputdir, args.training_dir, args.correction_lib))
+    print(export_id(args.config, args.outputdir, args.training_dir, args.correction_lib, args.id_correctionlib))
 
 
 if __name__ == "__main__":

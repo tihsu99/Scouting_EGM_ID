@@ -1,5 +1,6 @@
 """Validate exported IDs and remove their own cut components without training files."""
 from copy import deepcopy
+import ast
 import gzip
 import json
 import re
@@ -9,13 +10,104 @@ import correctionlib
 import numpy as np
 
 from apply_id import evaluate_id, id_evaluators, id_inputs
-from workflow.IDCorrection import id_expression_compiler
+from workflow.IDCorrection import Expressions, id_expression_compiler
 from workflow.working_points import WP
 
 
 def read_json(path):
     with (gzip.open if str(path).endswith(".gz") else open)(path, "rt") as handle:
         return json.load(handle)
+
+
+def remove_exported_acceptance(payload, source_regions, target_regions):
+    """Replace only outer region masks; retain the embedded calibrated cut expressions."""
+    if not source_regions or set(source_regions) != set(target_regions):
+        raise ValueError("Source and target ID dispatch must name the same regions")
+    updated = deepcopy(payload)
+    compounds = updated.get("compound_corrections", [])
+    if not compounds:
+        raise ValueError("Acceptance editing requires this project's compound ID export")
+    components = {item["name"]: item for item in updated["corrections"]}
+    changed, removed, checked = [], set(), set()
+
+    def addends(node):
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            return addends(node.left) + addends(node.right)
+        return [node]
+
+    def replace_masks(node, guard=False):
+        # Transform rules contain calibration expressions; only their final decision is edited.
+        while node["nodetype"] == "transform":
+            node = node["content"]
+        if node["nodetype"] != "formula" or node.get("parser") != "TFormula":
+            raise ValueError("Unsupported ID decision node; expected an exported TFormula")
+        expression = node["expression"]
+        if "\n" in expression:
+            raise ValueError("Unsupported multiline ID formula")
+        compiler = Expressions(node["variables"])
+        compiler.symbols = dict(zip(node["variables"], "xyzt"))
+        expected = {region: [ast.dump(ast.parse(compiler.compile(spec[region]["requirement"]), mode="eval").body)
+                             for spec in (source_regions, target_regions)] for region in source_regions}
+        tree = ast.parse(expression, mode="eval").body
+        if not guard:
+            if not (isinstance(tree, ast.BinOp) and isinstance(tree.op, ast.Mult)
+                    and isinstance(tree.right, ast.Compare) and len(tree.right.ops) == 1
+                    and isinstance(tree.right.ops[0], ast.NotEq)
+                    and isinstance(tree.right.comparators[0], ast.Constant)
+                    and tree.right.comparators[0].value == 0):
+                raise ValueError("Unsupported exported cut envelope; cannot isolate region masks")
+            tree = tree.right.left
+        replacements, seen = [], set()
+        for term in addends(tree):
+            if not guard and not (isinstance(term, ast.BinOp) and isinstance(term.op, ast.Mult)):
+                raise ValueError("Unsupported regional cut branch")
+            mask = term if guard else term.left
+            matches = [region for region, patterns in expected.items() if ast.dump(mask) in patterns]
+            if len(matches) != 1 or matches[0] in seen:
+                raise ValueError("ID region masks do not match the source or target YAML; nothing was written")
+            region = matches[0]
+            seen.add(region)
+            replacements.append((mask.col_offset, mask.end_col_offset,
+                                 compiler.compile(target_regions[region]["requirement"])))
+        if seen != set(target_regions):
+            raise ValueError("ID formula does not contain every configured region")
+        for start, end, replacement in sorted(replacements, reverse=True):
+            expression = expression[:start] + replacement + expression[end:]
+        node["expression"] = expression
+
+    for compound in compounds:
+        if compound.get("inputs_update") or compound.get("output_op") != "*":
+            raise ValueError("Acceptance editing needs independent multiplicative ID components")
+        prefix = re.escape(f"__id__/{compound['name']}/")
+        roots = {name for name in compound["stack"] if re.fullmatch(prefix + r"cut_\d+", name)}
+        if not roots or "__id__/exclusive_regions" not in compound["stack"]:
+            raise ValueError("Missing exported cut components or region dispatch")
+        for name in compound["stack"]:
+            if re.fullmatch(r"__id__/fiducial(?:/finite_\d+)?", name):
+                if any(item["name"] not in {"pt", "eta"} for item in components[name]["inputs"]):
+                    raise ValueError("Refusing to remove a fiducial component with nonkinematic inputs")
+                removed.add(name)
+            elif name == "__id__/exclusive_regions":
+                if name not in checked:
+                    data = components[name]["data"]
+                    if data["nodetype"] != "transform":
+                        raise ValueError("Unsupported exported region guard")
+                    replace_masks(data["rule"], guard=True)
+                    changed.append(name)
+                    checked.add(name)
+            elif name in roots:
+                if name not in checked:
+                    replace_masks(components[name]["data"])
+                    changed.append(name)
+                    checked.add(name)
+            elif not any(re.fullmatch(re.escape(root) + r"/finite_\d+", name) for root in roots):
+                raise ValueError(f"Unsupported common ID component: {name}")
+        compound["stack"] = [name for name in compound["stack"] if name not in removed]
+    updated["corrections"] = [item for item in updated["corrections"] if item["name"] not in removed]
+    updated["description"] = "Scouting ID cuts from the original export; analysis acceptance is applied by the caller."
+    correctionlib.CorrectionSet.from_string(json.dumps(updated, allow_nan=False))
+    return updated, dict(removed_components=sorted(removed), region_components=changed,
+                         calibrated_cut_expressions_preserved=True)
 
 
 def _expanded_formula(node, symbols):
