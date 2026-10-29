@@ -35,9 +35,10 @@ def recalibrate_id(config_path, id_correctionlib, correction_lib, candidate_conf
     new_compiler = id_expression_compiler(new_base, candidate, candidate_calibration)
     if old_compiler.inputs != new_compiler.inputs:
         raise ValueError("Recalibration must preserve the original raw input definitions")
-    if (base["region_definition"] != new_base["region_definition"] or
-            old_compiler.compile(config["correctionlib"]["requirement"]) !=
-            new_compiler.compile(candidate["correctionlib"]["requirement"])):
+    if (config["correctionlib"].get("region_definition", base["region_definition"]) !=
+            candidate["correctionlib"].get("region_definition", new_base["region_definition"]) or
+            old_compiler.compile(config["correctionlib"].get("requirement", "1")) !=
+            new_compiler.compile(candidate["correctionlib"].get("requirement", "1"))):
         raise ValueError("Recalibration must preserve the original regions and fiducial selection")
 
     replacements = {}

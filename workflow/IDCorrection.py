@@ -169,12 +169,15 @@ def id_expression_compiler(base, validation, calibration):
 def build_correction_set(base, validation, calibration, wps_by_region):
     compiler = id_expression_compiler(base, validation, calibration)
     settings = validation["correctionlib"]
-    requirement = compiler.compile(settings["requirement"])
+    region_definitions = settings.get("region_definition")
+    if not region_definitions or set(region_definitions) != set(wps_by_region):
+        raise ValueError("correctionlib.region_definition must define the exported WP regions; "
+                         "use exhaustive ID dispatch rules, separate from analysis acceptance")
     signatures = [{(source, wp.name) for source, wps in sources.items() for wp in wps}
                   for sources in wps_by_region.values()]
     if not signatures or any(keys != signatures[0] for keys in signatures):
         raise ValueError("Every region must provide the same source/WP names")
-    regions = {region: compiler.compile(base["region_definition"][region]["requirement"])
+    regions = {region: compiler.compile(region_definitions[region]["requirement"])
                for region in wps_by_region}
     branches = {}
     metadata = {}
@@ -213,7 +216,7 @@ def build_correction_set(base, validation, calibration, wps_by_region):
         else:
             inputs, data = compiler.formula(expression, check_finite=not region_guard)
         if region_guard:
-            # Reject overlapping regions rather than combining cuts from different regions.
+            # Reject overlapping regions; nonfinite inputs can match no region and must fail the ID.
             if not inputs:
                 raise ValueError("ID region definitions must depend on raw inputs")
             data = dict(nodetype="transform", input=inputs[0], rule=data,
@@ -227,9 +230,7 @@ def build_correction_set(base, validation, calibration, wps_by_region):
 
     region_inputs, common = add_component("__id__/exclusive_regions", "+".join(f"({value})" for value in regions.values()),
                                           region_guard=True)
-    fiducial_inputs, components = add_component("__id__/fiducial", requirement)
-    common.extend(components)
-    common_inputs = set(region_inputs) | set(fiducial_inputs)
+    common_inputs = set(region_inputs)
     compounds = []
     for name, regional_cuts in branches.items():
         inputs, stack = set(common_inputs), list(common)
@@ -248,5 +249,5 @@ def build_correction_set(base, validation, calibration, wps_by_region):
                               inputs=[dict(name=item, type="real") for item in compiler.inputs if item in inputs],
                               output=dict(name="pass", type="real"), inputs_update=[],
                               input_op="*", output_op="*", stack=stack))
-    return dict(schema_version=2, description="Full scouting ID from raw inputs; includes fiducial selection.",
+    return dict(schema_version=2, description="Scouting ID cuts from raw inputs; analysis acceptance is applied by the caller.",
                 corrections=corrections, compound_corrections=compounds), metadata

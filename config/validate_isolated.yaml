@@ -3,10 +3,12 @@
 base_config: retune.yaml
 regions: [Barrel, Endcap]
 
-# Export includes this fiducial cut and the base configuration's region selection.
+# ID dispatch is independent of analysis acceptance.
 correctionlib:
   version: 1
-  requirement: "pt > 10"
+  region_definition:
+    Barrel: {requirement: 'abs(eta) < 1.479'}
+    Endcap: {requirement: 'abs(eta) >= 1.479'}
 
 preparation:
   progress: true

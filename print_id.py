@@ -27,7 +27,8 @@ def print_configured_id(config_path, output, training_dir=None, correction_lib=N
         opener = gzip.open if path.suffix == ".gz" else open
         with opener(path, "rt") as handle:
             calibration = json.load(handle)
-    return print_id_table(wps, output, config.get("correctionlib", {}).get("requirement"), base["region_definition"],
+    return print_id_table(wps, output, None,
+                          config.get("correctionlib", {}).get("region_definition", base["region_definition"]),
                           definitions=definitions, calibration=calibration, include_usage=True)
 
 

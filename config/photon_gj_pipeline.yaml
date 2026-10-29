@@ -220,7 +220,10 @@ workflow:
 evaluation:
   correctionlib:
     version: 1
-    requirement: pt > 10
+    # ID dispatch only; pT, ECAL-gap and outer-eta acceptance belong to the caller.
+    region_definition:
+      Barrel: {requirement: 'abs(eta) < 1.479'}
+      Endcap: {requirement: 'abs(eta) >= 1.479'}
   wp_sources:
     PhotonIso:
       path: '{training_dir}/{region}/CutBased_WPs_PhotonIso_TMVA_seq.json'

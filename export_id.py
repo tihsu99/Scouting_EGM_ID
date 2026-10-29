@@ -44,15 +44,15 @@ def export_id(config_path, outputdir, training_dir=None, correction_lib=None):
         raise FileExistsError(f"ID export already exists in {output}; use a new output directory")
     packed = gzip.compress(payload.encode(), mtime=0)
     manifest = dict(correctionset=destinations[0].name, sha256=hashlib.sha256(packed).hexdigest(),
-                    evaluator="compound", corrections=metadata, requirement=config["correctionlib"]["requirement"],
-                    regions={region: base["region_definition"][region] for region in wps_by_region},
+                    evaluator="compound", corrections=metadata, requirement=None,
+                    regions=config["correctionlib"]["region_definition"],
                     artifacts={name: dict(path=str(path), sha256=hashlib.sha256(path.read_bytes()).hexdigest())
                                for name, path in artifacts.items()})
     destinations[0].write_bytes(packed)
     destinations[1].write_text(json.dumps(manifest, indent=2) + "\n")
     shutil.copyfile(Path(__file__).with_name("apply_id.py"), destinations[2])
     definitions = dict(preparation.get("define_variable", {}), **config.get("validation", {}).get("define_variable", {}))
-    print_id_table(wps_by_region, destinations[3], config["correctionlib"]["requirement"], base["region_definition"],
+    print_id_table(wps_by_region, destinations[3], None, config["correctionlib"]["region_definition"],
                    definitions=definitions, calibration=calibration, include_usage=True)
     return destinations[0]
 

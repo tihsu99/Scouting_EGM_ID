@@ -1,0 +1,62 @@
+# Rebuild evaluation data from raw Parquet, keeping the existing calibration and WPs.
+# Includes 5-10 GeV; training selections and analysis eta acceptance are unchanged.
+base_config: electron_pipeline.yaml
+dataset_overrides:
+  DY:
+    path: []
+    requirement: ((status == 1) | (status == 2)) & (pt >= 5) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.566) & (abs(eta) < 2.5)))
+  TT:
+    path: []
+    requirement: (sample == 'TT') & ((status == 0) | (status == 3) | (status == 5)) & (pt >= 5) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.566) & (abs(eta) < 2.5)))
+  QCD:
+    path: []
+    requirement: ((status == 0) | (status == 3)) & (pt >= 5) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.566) & (abs(eta) < 2.5)))
+  Zprime:
+    path: []
+    requirement: ((status == 1) | (status == 2)) & (pt >= 5) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.566) & (abs(eta) < 2.5)))
+comparisons:
+  DY:
+    signal: DY
+    backgrounds: [TT, QCD]
+    label: 'DY signal: status 1,2; TT: status 0,3,5; QCD: status 0,3; pT >= 5 GeV'
+    validation:
+      roc_reweight:
+        - source: DY
+          target: TT
+          binning: &lowpt_reweight_binning
+            pt: [5, 10, 15, 20, 30, 40, 60, 80, 120, 200, 300, 500, 700, 1000, 2000, 5000, 10000]
+            eta: [-2.5, -2.0, -1.566, -1.4442, -1.0, -0.5, 0.0, 0.5, 1.0, 1.4442, 1.566, 2.0, 2.5]
+        - &qcd_roc_reweight
+          source: QCD
+          target: TT
+          binning: *lowpt_reweight_binning
+  Zprime:
+    signal: Zprime
+    backgrounds: [TT, QCD]
+    label: 'Zprime 6 TeV signal: status 1,2; TT: status 0,3,5; QCD: status 0,3; pT >= 5 GeV'
+validation:
+  reference_sources: {}
+  correctionlib_references: {}
+  roc_reweight: *qcd_roc_reweight
+  pt_regions:
+    pt5to10: [5, 10]
+    pt10to100: [10, 100]
+    pt100to300: [100, 300]
+    pt300to800: [300, 800]
+    pt800plus: [800, null]
+  monitor_eff:
+    pt:
+      label: $p_T$ [GeV]
+      xscale: log
+      binning: &lowpt_bins [5, 10, 15, 20, 30, 50, 80, 100, 150, 200, 300, 500, 800, 1200, 2000, 3000, 5000, 10000]
+    gen_pt:
+      # Conditional ID efficiency of selected reconstructed candidates.
+      label: Generator $p_T$ [GeV]
+      xscale: log
+      binning: *lowpt_bins
+    eta:
+      label: $\eta$
+      binning: [-2.5, 2.5, 25]
+    ScoutingRho.fixedGridRhoFastjetAll:
+      label: $\rho$ [GeV]
+      binning: [0, 80, 16]

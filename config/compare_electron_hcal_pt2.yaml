@@ -6,6 +6,7 @@ min_entries_per_bin: 100
 fits:
   IH_pt:
     fit_range: [20, 2000]
+    x_title: 'Reco electron $p_T$ [GeV]'
     fitted_func: y = A1*x + A2*x**2 + A3
     coefficients: {IH_pt: A1, IH_pt2: A2}
     reference_label: 'Existing correctionlib: HCAL pT subtraction'
@@ -22,6 +23,8 @@ comparison_labels:
   candidate: HCAL linear + quadratic refit
 # Diagnostic fits never replace the reco-pT coefficients exported above.
 # Both axes use the same selected Zprime events and event-level train/held-out split.
+# Standalone fit plots: fits/<axis>/IH_pt/<model>/ (PDF and PNG).
+# The exported reco-pT fit and existing-calibration overlay stay in fits/pt/IH_pt/.
 profile_diagnostics:
   IH_pt:
     observable: hcalIso_calibrated

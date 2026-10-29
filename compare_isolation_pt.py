@@ -113,9 +113,10 @@ def profile_diagnostics(train, valid, candidate, cfg, fits, output):
                 for model, model_options in options["models"].items():
                     formula = model_options["function"]
                     function, parameters, _ = parse_fitted_function(formula)
-                    model_style = dict(style, fit_labels={"profile": f"Training: {quantile}", "fit": model_options["label"]})
+                    profile_label = spec.get("fit_labels", {}).get("profile", f"{cfg['dataset']}: {quantile}")
+                    model_style = dict(style, fit_labels={"profile": profile_label, "fit": model_options["label"]})
                     result = fit_and_plot((low, high, training.eval(axis).to_numpy(), training.eval(spec["y"]).to_numpy(),
-                        axis, spec["y"], str(directory / "fits"), formula, model, spec["y_type"], bins,
+                        axis, spec["y"], str(output / "fits" / axis / name), formula, model, spec["y_type"], bins,
                         axis_options["label"], spec["y_title"], spec["title"],
                         training.calibration_weight.to_numpy(), parameters[0]),
                         model_style, cfg["min_entries_per_bin"], fit_range=fit_range)
@@ -235,7 +236,7 @@ def run(config_path, inputdir, correction_lib, outputdir):
                 old_value = (f"{old[0]:.4g}" if np.allclose(old, old[0], rtol=1e-12, atol=0)
                              else f"[{old.min():.4g}, {old.max():.4g}] (varies within eta bin)")
                 reference_label += f"\n{name} = {old_value} (coefficient of pT)"
-            result = fit_and_plot((low, high, subset.pt.to_numpy(), y, "pt", spec["y"], str(output / "fits"),
+            result = fit_and_plot((low, high, subset.pt.to_numpy(), y, "pt", spec["y"], str(output / "fits" / "pt"),
                 spec["fitted_func"], name, spec["y_type"], bins, spec["x_title"], spec["y_title"], spec["title"],
                 subset.calibration_weight.to_numpy(), next(iter(coefficients.values()))),
                 style, cfg["min_entries_per_bin"],
@@ -279,11 +280,14 @@ def run(config_path, inputdir, correction_lib, outputdir):
     define_variables(candidate, candidate_definitions)
     profiles = compare_profiles(valid, candidate, cfg, base, output)
     diagnostics = profile_diagnostics(train, valid, candidate, cfg, fits, output)
+    fit_directories = {axis: str(output / "fits" / axis) for axis in dict.fromkeys(
+        ["pt", *(item["axis"] for item in diagnostics)])}
     report = dict(loading=loading, train_rows=len(train), heldout_rows=len(valid),
                   fit_parameters="Unweighted fit to populated profile bins; errors are fit covariance errors",
                   below_minimum_profile_bins=int(profiles.value.isna().sum()),
                   candidate_calibration=str(candidate_path),
                   candidate_id_config=str(candidate_config),
+                  fit_plot_directories=fit_directories,
                   full_id_updated=False)
     if diagnostics:
         report["profile_diagnostics"] = dict(
@@ -298,6 +302,8 @@ def run(config_path, inputdir, correction_lib, outputdir):
         print("Diagnostic fits only; held-out profile RMSE [GeV] (not a significance test):")
         print(pd.DataFrame(diagnostics)[["axis", "eta_min", "eta_max", "model",
               "heldout_rmse_fit_range", "heldout_rmse_extrapolation"]].to_string(index=False))
+    for axis, directory in fit_directories.items():
+        print(f"{axis} fit plots: {directory}")
     print(f"Comparison written to {output}")
     return output
 

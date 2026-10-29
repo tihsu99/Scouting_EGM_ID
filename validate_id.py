@@ -172,7 +172,6 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
                                datasets=selected, wp_sources=sources,
                                region_definition=base["region_definition"],
                                plot_style=plot_style,
-                               id_requirement=cfg.get("correctionlib", {}).get("requirement"),
                                id_correctionlib=artifacts.get("id_correctionlib"),
                                label=comparison.get("label", name), **validation)
             jobs.extend((f"{name}/{region}", dict(arguments, regions=[region])) for region in regions)

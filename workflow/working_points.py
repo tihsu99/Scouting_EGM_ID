@@ -24,8 +24,10 @@ returns a Boolean array, with one decision per candidate.
 Provide raw candidate columns with their original names. Use GeV for pT and
 absolute isolation, and the event rho for each candidate. Do not pre-apply EA,
 pT/scale corrections, isolation division or clipping: the JSON already applies
-the configured feature definitions, region selections and WP cuts. Only the
-inputs listed by each WP are required; truth labels and event weights are not
+the configured feature definitions, region dispatch and WP cuts. Apply analysis
+pT and eta acceptance separately; newly exported IDs impose neither a minimum
+pT nor an ECAL-gap or outer-eta veto. Only the inputs listed by each WP are
+required; truth labels and event weights are not
 inputs to this ID decision. Extra DataFrame columns are allowed.
 
 Install the dependencies if needed:

@@ -335,7 +335,10 @@ evaluation:
     batch_size: 200000
   correctionlib:
     version: 1
-    requirement: pt > 10
+    # ID dispatch only; pT, ECAL-gap and outer-eta acceptance belong to the caller.
+    region_definition:
+      Barrel: {requirement: 'abs(eta) < 1.479'}
+      Endcap: {requirement: 'abs(eta) >= 1.479'}
   wp_sources:
     Iso:
       path: '{training_dir}/{region}/CutBased_WPs_Iso_TMVA_seq.json'
