@@ -50,13 +50,16 @@ def remove_exported_acceptance(payload, source_regions, target_regions):
                              for spec in (source_regions, target_regions)] for region in source_regions}
         tree = ast.parse(expression, mode="eval").body
         if not guard:
-            if not (isinstance(tree, ast.BinOp) and isinstance(tree.op, ast.Mult)
+            outer = tree
+            # Recalibration recompiles the decision and adds another finite-value envelope.
+            while (isinstance(tree, ast.BinOp) and isinstance(tree.op, ast.Mult)
                     and isinstance(tree.right, ast.Compare) and len(tree.right.ops) == 1
                     and isinstance(tree.right.ops[0], ast.NotEq)
                     and isinstance(tree.right.comparators[0], ast.Constant)
                     and tree.right.comparators[0].value == 0):
+                tree = tree.right.left
+            if tree is outer:
                 raise ValueError("Unsupported exported cut envelope; cannot isolate region masks")
-            tree = tree.right.left
         replacements, seen = [], set()
         for term in addends(tree):
             if not guard and not (isinstance(term, ast.BinOp) and isinstance(term.op, ast.Mult)):
