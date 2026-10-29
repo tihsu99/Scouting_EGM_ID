@@ -1,0 +1,14 @@
+# Companion to validate_photon_pt5.yaml, using pT >= 10 GeV.
+# Rebuild from raw Parquet; reuse held-out splits, GJ weights and the same full ID JSON.
+base_config: photon_gj_pipeline.yaml
+dataset_overrides:
+  GJetSignal:
+    path: []
+    requirement: (status == 1) & (pt >= 10) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.5666) & (abs(eta) < 2.5)))
+  GJetBackground:
+    path: []
+    requirement: ((status == 0) | (status == 3)) & (pt >= 10) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.5666) & (abs(eta) < 2.5)))
+validation:
+  reference_sources: {}
+  correctionlib_references: {}
+  nminus1_efficiencies: false

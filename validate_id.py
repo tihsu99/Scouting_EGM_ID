@@ -131,7 +131,7 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
     shared.update(preparation)
     shared.update(cfg.get("preparation", {}))
     shared.update(inputdir=paths["inputdir"], correction_lib=correction_lib, regions=regions,
-                  normalization={}, validation_only=True, kinematic_reweighting=None,
+                  normalization=cfg.get("normalization", {}), validation_only=True, kinematic_reweighting=None,
                   stitch_binning=None, inspect_variable={})
     if raw_id_only:
         shared.update(input_columns=raw_columns, define_variable={})
@@ -151,15 +151,27 @@ def run(config_path, outputdir, inputdir=None, prepared_dir=None, training_dir=N
             if not dataset.get("samples"):
                 raise ValueError(f"Dataset {name} needs --prepared-dir or YAML samples for preparation from --inputdir")
             dataset["path"] = []
-            # Prepare one sample at a time; QCD has many independent generation bins.
-            for sample in dataset["samples"]:
-                data_dir = output / "evaluation_data" / name / sample
+            batches = {sample: [sample] for sample in dataset["samples"]}
+            if shared["normalization"]:
+                # Joint generation samples need the same event-level normalization denominator.
+                batches = {}
+                for group, options in shared["normalization"]["groups"].items():
+                    if set(options["samples"]) & set(dataset["samples"]):
+                        if not set(options["samples"]) <= set(dataset["samples"]):
+                            raise ValueError(f"Dataset {name} must include every sample in normalization group {group}")
+                        batches[group] = options["samples"]
+                covered = [sample for samples in batches.values() for sample in samples]
+                if set(covered) != set(dataset["samples"]) or len(covered) != len(set(covered)):
+                    raise ValueError(f"Dataset {name} needs exactly one normalization group per sample")
+            # Bound memory by loading one sample or normalization group at a time.
+            for batch, samples in batches.items():
+                data_dir = output / "evaluation_data" / name / batch
                 dataset["path"].append(str(data_dir / "{region}" / "valid" / f"{name}.parquet"))
                 if "prepare" in steps:
                     arguments = dict(shared, process={name: {
-                        "samples": {sample: 1.0}, "requirement": dataset["requirement"]}},
+                        "samples": dict.fromkeys(samples, 1.0), "requirement": dataset["requirement"]}},
                         validation_split=dataset.get("validation_split", "all"),
-                        storedir=str(data_dir), plotdir=str(output / "preparation" / name / sample))
+                        storedir=str(data_dir), plotdir=str(output / "preparation" / name / batch))
                     InspectDistributionAnalysis(**arguments)
         for region in regions:
             for template in dataset["path"]:

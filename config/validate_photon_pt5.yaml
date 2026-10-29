@@ -1,0 +1,37 @@
+# Rebuild held-out GJ candidates from raw Parquet with the existing full photon ID JSON.
+# Reuse the pipeline's samples, cross-section weights and eta acceptance.
+base_config: photon_gj_pipeline.yaml
+dataset_overrides:
+  GJetSignal:
+    path: []
+    requirement: (status == 1) & (pt >= 5) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.5666) & (abs(eta) < 2.5)))
+  GJetBackground:
+    path: []
+    requirement: ((status == 0) | (status == 3)) & (pt >= 5) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.5666) & (abs(eta) < 2.5)))
+validation:
+  reference_sources: {}
+  correctionlib_references: {}
+  nminus1_efficiencies: false
+  roc_reweight:
+    source: GJetSignal
+    target: GJetBackground
+    binning:
+      pt: [5, 10, 15, 20, 30, 50, 80, 100, 150, 200, 300, 500, 800, 1200, 2000, 5000, 10000]
+      eta: [-2.5, -2.2, -2.0, -1.5666, -1.4442, -1.0, 0, 1.0, 1.4442, 1.5666, 2.0, 2.2, 2.5]
+  pt_regions:
+    pt5to10: [5, 10]
+    pt10to100: [10, 100]
+    pt100to300: [100, 300]
+    pt300to800: [300, 800]
+    pt800plus: [800, null]
+  monitor_eff:
+    pt:
+      label: $p_T$ [GeV]
+      xscale: log
+      binning: [5, 10, 15, 20, 30, 50, 80, 100, 150, 200, 300, 500, 800, 1200, 2000, 5000, 10000]
+    eta:
+      label: $\eta$
+      binning: [-2.5, 2.5, 25]
+    ScoutingRho.fixedGridRhoFastjetAll:
+      label: $\rho$ [GeV]
+      binning: [0, 80, 16]

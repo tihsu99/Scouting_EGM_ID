@@ -236,10 +236,30 @@ evaluation:
       labels: {ScoutingPhotonCustomizev1: AXOL1TL}
   datasets:
     GJetSignal:
+      samples: &photon_gj_samples
+        - GJ_Winter25_HT_1000_PTG_100to200
+        - GJ_Winter25_HT_1000_PTG_10to100
+        - GJ_Winter25_HT_1000_PTG_200
+        - GJ_Winter25_HT_100to200_PTG_10to100
+        - GJ_Winter25_HT_10to40_PTG_10to100
+        - GJ_Winter25_HT_200to400_PTG_100to200
+        - GJ_Winter25_HT_200to400_PTG_10to100
+        - GJ_Winter25_HT_400to600_PTG_100to200
+        - GJ_Winter25_HT_400to600_PTG_10to100
+        - GJ_Winter25_HT_400to600_PTG_200
+        - GJ_Winter25_HT_40to100_PTG_10to100
+        - GJ_Winter25_HT_40to200_PTG_100to200
+        - GJ_Winter25_HT_40to400_PTG_200
+        - GJ_Winter25_HT_600to1000_PTG_100to200
+        - GJ_Winter25_HT_600to1000_PTG_10to100
+        - GJ_Winter25_HT_600to1000_PTG_200
+      validation_split: heldout
       label: GJet prompt photons (status 1)
       path: '{prepared_dir}/{region}/valid/signal.parquet'
       requirement: (status == 1) & (pt > 10) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.5666) & (abs(eta) < 2.5)))
     GJetBackground:
+      samples: *photon_gj_samples
+      validation_split: heldout
       label: GJet photon candidates (status 0,3)
       path: '{prepared_dir}/{region}/valid/background.parquet'
       requirement: ((status == 0) | (status == 3)) & (pt > 10) & ((abs(eta) < 1.4442) | ((abs(eta) > 1.5666) & (abs(eta) < 2.5)))
@@ -309,59 +329,11 @@ evaluation:
     process_palettes:
       GJetSignal: ['#7F2704', '#D94801', '#F58D3C', '#955B48']
       GJetBackground: ['#123B63', '#236C99', '#4E9FC1', '#606B87']
-calibration_samples:
-- GJ_Winter25_HT_1000_PTG_100to200
-- GJ_Winter25_HT_1000_PTG_10to100
-- GJ_Winter25_HT_1000_PTG_200
-- GJ_Winter25_HT_100to200_PTG_10to100
-- GJ_Winter25_HT_10to40_PTG_10to100
-- GJ_Winter25_HT_200to400_PTG_100to200
-- GJ_Winter25_HT_200to400_PTG_10to100
-- GJ_Winter25_HT_400to600_PTG_100to200
-- GJ_Winter25_HT_400to600_PTG_10to100
-- GJ_Winter25_HT_400to600_PTG_200
-- GJ_Winter25_HT_40to100_PTG_10to100
-- GJ_Winter25_HT_40to200_PTG_100to200
-- GJ_Winter25_HT_40to400_PTG_200
-- GJ_Winter25_HT_600to1000_PTG_100to200
-- GJ_Winter25_HT_600to1000_PTG_10to100
-- GJ_Winter25_HT_600to1000_PTG_200
+calibration_samples: *photon_gj_samples
 studies:
   photon_gj:
-    signal:
-    - GJ_Winter25_HT_1000_PTG_100to200
-    - GJ_Winter25_HT_1000_PTG_10to100
-    - GJ_Winter25_HT_1000_PTG_200
-    - GJ_Winter25_HT_100to200_PTG_10to100
-    - GJ_Winter25_HT_10to40_PTG_10to100
-    - GJ_Winter25_HT_200to400_PTG_100to200
-    - GJ_Winter25_HT_200to400_PTG_10to100
-    - GJ_Winter25_HT_400to600_PTG_100to200
-    - GJ_Winter25_HT_400to600_PTG_10to100
-    - GJ_Winter25_HT_400to600_PTG_200
-    - GJ_Winter25_HT_40to100_PTG_10to100
-    - GJ_Winter25_HT_40to200_PTG_100to200
-    - GJ_Winter25_HT_40to400_PTG_200
-    - GJ_Winter25_HT_600to1000_PTG_100to200
-    - GJ_Winter25_HT_600to1000_PTG_10to100
-    - GJ_Winter25_HT_600to1000_PTG_200
-    background:
-    - GJ_Winter25_HT_1000_PTG_100to200
-    - GJ_Winter25_HT_1000_PTG_10to100
-    - GJ_Winter25_HT_1000_PTG_200
-    - GJ_Winter25_HT_100to200_PTG_10to100
-    - GJ_Winter25_HT_10to40_PTG_10to100
-    - GJ_Winter25_HT_200to400_PTG_100to200
-    - GJ_Winter25_HT_200to400_PTG_10to100
-    - GJ_Winter25_HT_400to600_PTG_100to200
-    - GJ_Winter25_HT_400to600_PTG_10to100
-    - GJ_Winter25_HT_400to600_PTG_200
-    - GJ_Winter25_HT_40to100_PTG_10to100
-    - GJ_Winter25_HT_40to200_PTG_100to200
-    - GJ_Winter25_HT_40to400_PTG_200
-    - GJ_Winter25_HT_600to1000_PTG_100to200
-    - GJ_Winter25_HT_600to1000_PTG_10to100
-    - GJ_Winter25_HT_600to1000_PTG_200
+    signal: *photon_gj_samples
+    background: *photon_gj_samples
 normalization:
   weight_column: Generator.weight
   luminosity_pb: 1.0

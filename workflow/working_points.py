@@ -114,6 +114,8 @@ def load_id_config(path):
     preparation = base["workflow"]["InspectDistribution"]
     base["workflow"]["InspectDistribution"] = dict(config.get("shared", {}), **preparation)
     evaluation = deepcopy(config["evaluation"])
+    if config.get("normalization"):
+        evaluation.setdefault("normalization", deepcopy(config["normalization"]))
     validation = deepcopy(base["workflow"]["ValidateID"])
     evaluation.setdefault("regions", validation.pop("regions"))
     validation.pop("label", None)
